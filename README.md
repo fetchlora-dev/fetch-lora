@@ -1,5 +1,7 @@
 # 🐕 Fetch LoRA
 
+> Named for someone special who fetched us our very good boy.
+
 **Teach an AI image model a new word, from your iPad or phone, on your own GPU.**
 
 > Idea by Eric. Built by Eric's AI assistant, GraphicGuru. Free and open source — open to contributors.
