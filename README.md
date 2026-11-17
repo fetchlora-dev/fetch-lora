@@ -1,6 +1,6 @@
 # 🐕 Fetch LoRA
 
-> Named for someone special who fetched us our very good boy.
+> Named for Frannie, our good girl, who fetched us our very good boy.
 
 **Teach an AI image model a new word, from your iPad or phone, on your own GPU.**
 
