@@ -1,0 +1,25 @@
+# Optional add-on: auto-convert finished LoRAs for a Draw Things gRPC server.
+# GPL-3.0 component; see converter/README.md. Enable via COMPOSE_FILE in .env.
+services:
+  fetch-drawthings:
+    build: ./converter
+    image: fetch-drawthings-converter:latest
+    container_name: fetch-drawthings
+    restart: unless-stopped
+    environment:
+      - DT_VERSION=${DT_VERSION:-flux2_4b}
+      - TZ=${TZ:-UTC}
+      # "Send to Draw Things" button: the one container this add-on may restart.
+      - DT_SERVER_CONTAINER=${DT_SERVER_CONTAINER:-drawthings-grpc}
+      - DT_RESTART_DRY_RUN=${DT_RESTART_DRY_RUN:-0}
+    volumes:
+      - ${DRAGON_DATA_DIR:-./data}/loras:/exports       # Fetch LoRA's finished LoRAs (and status files)
+      - dt-models:/grpc-models                         # the gRPC server's models folder
+      # Lets the add-on restart the Draw Things server when you tap "Send to Draw Things".
+      # The code only calls "restart" on DT_SERVER_CONTAINER. Delete this line to turn the button off
+      # (LoRAs are still converted; you'd restart the server yourself).
+      - /var/run/docker.sock:/var/run/docker.sock
+volumes:
+  dt-models:
+    external: true
+    name: ${DT_MODELS_VOLUME:-drawthings-models}

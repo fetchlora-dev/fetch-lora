@@ -1,0 +1,12 @@
+# Builds Draw Things' open-source LoRAConverter (GPL-3.0, drawthingsai/draw-things-community)
+# for Linux, CPU only. Output: a single binary that turns .safetensors LoRAs into Draw Things' format.
+FROM swift:6.4.2-jammy
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git curl ca-certificates python3 python-is-python3 unzip zip \
+      clang llvm lld libpng-dev libjpeg-dev libatlas-base-dev libblas-dev libsqlite3-dev \
+      libomp-dev pkg-config build-essential \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-linux-amd64 \
+    && chmod +x /usr/local/bin/bazel
+WORKDIR /src

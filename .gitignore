@@ -1,0 +1,44 @@
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Everything the trainer writes: photos, jobs, samples, checkpoints, LoRAs
+data/
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+*.gguf
+
+# Personal build notes and screenshots stay out of the repo
+diary/
+BUILD_DIARY*.md
+
+# Test photos: download them yourself (see testdata/bo/CREDITS.txt)
+testdata/**/*.jpg
+testdata/**/*.jpeg
+testdata/**/*.png
+
+# Converter build leftovers
+converter/out/
+converter/test/
+converter/*.log
+
+# Backups, logs, caches, virtual environments
+*.bak-*
+*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+hf-cache/
+.cache/
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

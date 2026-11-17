@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fetch LoRA">
+<title>Fetch LoRA</title>
+<link rel="icon" href="/static/icon.svg">
+<link rel="apple-touch-icon" href="/static/icon.png">
+<style>
+
+  :root { --bg:#0f1420; --card:#1a2133; --ink:#eef1f8; --dim:#9aa4bd; --accent:#ff8a3d; --ok:#4cd28a; --bad:#ff5d6c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:860px; margin:0 auto; padding:24px 18px 60px; }
+  h1 { font-size:30px; margin:4px 0 2px; } h1 span { color:var(--accent); }
+  .sub { color:var(--dim); margin:0 0 22px; }
+  .card { background:var(--card); border-radius:18px; padding:20px; margin:0 0 18px; }
+  .card h2 { margin:0 0 12px; font-size:20px; }
+  label { display:block; font-weight:600; margin:14px 0 6px; }
+  .hint { color:var(--dim); font-size:14px; font-weight:400; }
+  input[type=text], select { width:100%; font-size:18px; padding:12px 14px; border-radius:12px; border:1px solid #33405e; background:#0f1626; color:var(--ink); }
+  .pick { display:flex; align-items:center; justify-content:center; gap:10px; border:2px dashed #3a4a70; border-radius:14px; padding:22px; cursor:pointer; color:var(--dim); text-align:center; }
+  .pick:hover { border-color:var(--accent); }
+  input[type=file] { display:none; }
+  .thumbs { display:grid; grid-template-columns:repeat(auto-fill, minmax(90px,1fr)); gap:6px; margin-top:10px; }
+  .thumbs img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; }
+  .thumbs.tagged { grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:10px; }
+  .thumbs.tagged figure { margin:0; display:flex; flex-direction:column; gap:4px; }
+  .thumbs.tagged input { width:100%; font-size:16px; padding:8px 10px; border-radius:10px; border:1px solid #33405e; background:#0f1626; color:var(--ink); }
+  .thumbs.tagged input:focus { outline:none; border-color:var(--accent); }
+  @media (max-width:420px) { .thumbs.tagged { grid-template-columns:repeat(2,1fr); } }
+  .presets { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .presets button { padding:12px 6px; border-radius:12px; border:1px solid #33405e; background:#0f1626; color:var(--ink); font-size:15px; }
+  .presets button.on { border-color:var(--accent); background:#2a1d14; }
+  .presets small { display:block; color:var(--dim); font-size:12px; margin-top:2px; }
+  .go { width:100%; margin-top:20px; padding:16px; font-size:20px; font-weight:700; border:0; border-radius:14px; background:var(--accent); color:#1b0f05; }
+  .go:disabled { opacity:.5; }
+  .bar { height:14px; background:#0f1626; border-radius:8px; overflow:hidden; margin:10px 0; }
+  .bar > div { height:100%; width:0; background:linear-gradient(90deg,#ff8a3d,#ffc46b); transition:width .6s; }
+  .row { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--dim); font-size:15px; }
+  .jobs a { display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid #26304a; color:var(--ink); text-decoration:none; }
+  .pill { font-size:13px; padding:2px 10px; border-radius:20px; background:#26304a; color:var(--dim); }
+  .pill.running { background:#3a2a10; color:#ffc46b; } .pill.done { background:#123222; color:var(--ok); } .pill.failed,.pill.interrupted { background:#3a1418; color:var(--bad); }
+  .samples h3 { margin:18px 0 8px; font-size:16px; color:var(--dim); font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .grid img { width:100%; border-radius:10px; display:block; }
+  .gpu { font-size:14px; color:var(--dim); }
+  .err { color:var(--bad); margin-top:10px; }
+  pre { white-space:pre-wrap; font-size:12px; color:var(--dim); max-height:300px; overflow:auto; background:#0f1626; padding:10px; border-radius:10px; }
+  .btn { display:inline-block; padding:12px 16px; border-radius:12px; background:#26304a; color:var(--ink); text-decoration:none; border:0; font-size:16px; margin:6px 6px 0 0; }
+  .btn.primary { background:var(--ok); color:#06210f; font-weight:700; }
+  ol li { margin-bottom:6px; }
+  .back { color:var(--dim); text-decoration:none; }
+
+  .ptiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:10px; margin-top:12px; }
+  @media (max-width:420px) { .ptiles { grid-template-columns:repeat(2,1fr); } }
+  .ptile { position:relative; display:flex; flex-direction:column; gap:4px; }
+  .ptile img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:10px; display:block; background:#0f1626; }
+  .ptile.flagged img { outline:3px solid #c98a2b; outline-offset:-3px; }
+  .ptile .x { position:absolute; top:6px; right:6px; width:34px; height:34px; border-radius:17px; border:0; background:rgba(0,0,0,.65); color:#fff; font-size:18px; line-height:34px; padding:0; }
+  .ptile .badges { display:flex; flex-wrap:wrap; gap:3px; min-height:0; }
+  .badge { font-size:12px; padding:1px 7px; border-radius:10px; background:#3a2a10; color:#ffc46b; }
+  .badge.soft { background:#26304a; color:var(--dim); }
+  .badge.wait { background:#1f2840; color:var(--dim); }
+  .ptile input { width:100%; font-size:16px; padding:8px 10px; border-radius:10px; border:1px solid #33405e; background:#0f1626; color:var(--ink); }
+  .ptile input:focus { outline:none; border-color:var(--accent); }
+  .summary { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-top:12px; color:var(--dim); font-size:15px; }
+  .summary b { color:var(--ink); }
+  .linkbtn { background:none; border:0; color:var(--accent); font-size:15px; padding:6px 0; text-decoration:underline; }
+  .note { background:#22283b; border-left:4px solid var(--accent); border-radius:10px; padding:10px 12px; margin-top:10px; font-size:15px; color:var(--ink); }
+  .note button { margin-left:4px; }
+  details.adv { margin-top:18px; border-top:1px solid #26304a; padding-top:10px; }
+  details.adv summary { cursor:pointer; color:var(--dim); font-size:16px; padding:6px 0; }
+  .check { display:flex; gap:10px; align-items:flex-start; font-weight:400; margin:12px 0; }
+  .check input { width:24px; height:24px; flex:none; margin-top:1px; }
+  input[type=number], input[type=url] { width:100%; font-size:18px; padding:12px 14px; border-radius:12px; border:1px solid #33405e; background:#0f1626; color:var(--ink); }
+  .qrow { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 0; border-bottom:1px solid #26304a; }
+  .qrow a { color:var(--ink); text-decoration:none; flex:1; min-width:0; }
+  .qrow .acts { display:flex; gap:6px; flex:none; }
+  .qrow .acts button { width:40px; height:40px; border-radius:10px; border:1px solid #33405e; background:#0f1626; color:var(--ink); font-size:16px; padding:0; }
+  .mini { height:6px; background:#0f1626; border-radius:4px; overflow:hidden; margin-top:6px; }
+  .mini > div { height:100%; background:linear-gradient(90deg,#ff8a3d,#ffc46b); }
+  .versions { display:grid; gap:10px; }
+  .version { border:2px solid #26304a; border-radius:14px; padding:10px; background:#141b2b; text-align:left; color:var(--ink); width:100%; font-size:15px; }
+  .version.on { border-color:var(--ok); background:#12261c; }
+  .version .grid { margin-top:8px; }
+  .version .vt { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .ba { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .ba figure { margin:0; } .ba img { width:100%; border-radius:10px; display:block; }
+  .ba figcaption { font-size:13px; color:var(--dim); text-align:center; margin-top:2px; }
+  .steps3 { counter-reset:s; } .steps3 h3 { font-size:17px; margin:18px 0 8px; }
+  .big { width:100%; padding:16px; font-size:19px; font-weight:700; border:0; border-radius:14px; background:var(--ok); color:#06210f; }
+  .big:disabled { opacity:.6; }
+  .ok { color:var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🐕 <span>Fetch LoRA</span></h1>
+  <p class="sub">Teach your own AI a new word using your own photos, on your own computer. Nothing goes to the cloud.</p>
+  <div id="home">
+    <div class="card" id="newCard">
+      <h2>1. Pick your photos</h2>
+      <p class="note" id="againNote" style="display:none"></p>
+      <label for="files" class="pick" id="pickBox">📷 &nbsp;Tap to choose 20–40 photos<br><span class="hint">Different angles, places and light work best. One subject per photo.</span></label>
+      <input id="files" type="file" accept="image/*" multiple>
+      <div class="bar" id="checkbar" style="display:none"><div></div></div>
+      <div class="summary" id="summary"></div>
+      <p class="hint" id="tagHint" style="display:none">Optional: type tags under a photo, separated by commas (e.g. <i>frisbee, mid-air, left side</i>). Tags name things you want to control in prompts later, like props, poses and angles. Not the dog itself.</p>
+      <div class="ptiles" id="tiles"></div>
+
+      <label for="name">2. Give it a name <span class="hint">— this becomes the magic word you type later</span></label>
+      <input id="name" type="text" placeholder="biscuit_dog" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <label for="kind">3. What are you teaching?</label>
+      <select id="kind">
+        <option value="dog">A dog</option><option value="cat">A cat</option><option value="pet">Another pet</option>
+        <option value="person">A person (ask them first!)</option><option value="thing">An object</option><option value="style">An art style</option>
+      </select>
+      <label>4. How good should it get?</label>
+      <div class="presets" id="presets">
+        <button data-p="quick">Quick test<small id="t-quick">~15 min</small></button>
+        <button data-p="good">Good<small id="t-good">~1 hour</small></button>
+        <button data-p="best" class="on">Best<small id="t-best">longest</small></button>
+      </div>
+      <div id="presetNote"></div>
+
+      <details class="adv" id="adv">
+        <summary>More options (you can skip these)</summary>
+        <label class="check"><input type="checkbox" id="autocrop" checked><span><b>Zoom in on the subject</b><br><span class="hint">Crops each photo around the dog (or person) with a little room around it. Photos where nothing is found stay as they are.</span></span></label>
+        <label class="check"><input type="checkbox" id="bgremove"><span><b>Remove backgrounds</b><br><span class="hint">Puts every photo on plain white. Can help with busy backgrounds; the AI may then like plain backgrounds too. The first time downloads a small helper model (~180 MB).</span></span></label>
+        <label for="steps">Practice steps <span class="hint">— leave empty for automatic (<span id="autoSteps">—</span>)</span></label>
+        <input id="steps" type="number" min="50" max="8000" step="50" inputmode="numeric" placeholder="automatic">
+        <label for="webhook">Tell my phone when it's done <span class="hint">— a web address (webhook) that gets a message when a training finishes or stops, e.g. a Home Assistant webhook. See the README.</span></label>
+        <input id="webhook" type="url" placeholder="http://homeassistant.local:8123/api/webhook/…" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <button class="btn" id="saveHook">Save</button><button class="btn" id="testHook">Send a test</button>
+        <p class="hint" id="hookMsg"></p>
+      </details>
+
+      <button class="go" id="go">Start training</button>
+      <div class="bar" id="upbar" style="display:none"><div></div></div>
+      <div class="err" id="err"></div>
+    </div>
+    <div class="card"><h2>Your trainings</h2><div id="jobs"><span class="hint">None yet.</span></div></div>
+    <p class="gpu" id="gpuHome"></p>
+  </div>
+  <div id="job" style="display:none"></div>
+</main>
+<script>
+const _fetch = window.fetch; window.fetch = async (...a) => { const r = await _fetch(...a); if (r.status === 401) location.href = '/login'; return r; };
+const $ = s => document.querySelector(s);
+let preset = 'best', timer = null, draft = null, photos = [], uploading = 0, est = null, editingTags = false;
+const fmt = s => { if (s == null) return '—'; const h = Math.floor(s/3600), m = Math.max(1, Math.round((s%3600)/60)); return h ? `${h} h ${m} min` : `${m} min`; };
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const STATUS = {queued:'Waiting its turn', running:'Training', done:'Done', failed:'Stopped', cancelled:'Cancelled', interrupted:'Paused'};
+async function api(url, opts = {}) {
+  let r;
+  try { r = await fetch(url, opts); } catch { throw new Error('Could not reach your PC. Is it on, and is Tailscale on?'); }
+  let j = {}; try { j = await r.json(); } catch {}
+  if (!r.ok) throw new Error(j.detail || ('Something went wrong (' + r.status + ')'));
+  return j;
+}
+const postJSON = (url, body) => api(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+const postForm = (url, obj) => { const fd = new FormData(); Object.entries(obj).forEach(([k,v]) => fd.append(k, v)); return api(url, {method:'POST', body: fd}); };
+
+/* ---------------- photos: upload, check, tag ---------------- */
+const kept = () => photos.filter(p => !p.removed);
+const flagged = () => kept().filter(p => (p.flags || []).some(f => f.serious));
+
+function tileHTML(p) {
+  const fl = p.flags;
+  const badges = fl == null ? '<span class="badge wait">checking…</span>' : fl.map(f => `<span class="badge ${f.serious ? '' : 'soft'}">${esc(f.text)}</span>`).join('');
+  return `<div class="ptile ${fl && fl.some(f => f.serious) ? 'flagged' : ''}" data-pid="${p.pid}">
+    <img src="${p.thumb}" alt="${esc(p.name)}" loading="lazy">
+    <button class="x" title="Remove this photo" data-rm="${p.pid}">✕</button>
+    <div class="badges">${badges}</div>
+    <input type="text" class="tag" data-tag="${p.pid}" value="${esc(p.tags || '')}" placeholder="tags (optional)" maxlength="200" autocapitalize="none" autocorrect="off" enterkeyhint="done">
+  </div>`;
+}
+function renderTiles() {
+  const k = kept();
+  $('#tiles').innerHTML = k.map(tileHTML).join('');
+  $('#tagHint').style.display = k.length ? '' : 'none';
+  const f = flagged().length, good = k.length - f;
+  let html = '';
+  if (uploading) html = `<span>Checking your photos… ${photos.length} of ${photos.length + uploading}</span>`;
+  else if (k.length) {
+    html = `<span>✅ <b>${good}</b> photo${good===1?'':'s'} look${good===1?'s':''} good</span>`;
+    if (f) html += `<span>⚠️ <b>${f}</b> might hurt the result</span><button class="btn" id="rmFlagged">Remove those ${f}</button>`;
+    html += `<button class="linkbtn" id="clearAll">Start over</button>`;
+  }
+  $('#summary').innerHTML = html;
+  $('#pickBox').innerHTML = k.length ? `➕ &nbsp;Add more photos <span class="hint">(${k.length} chosen)</span>` : '📷 &nbsp;Tap to choose 20–40 photos<br><span class="hint">Different angles, places and light work best. One subject per photo.</span>';
+  updateEstimates();
+}
+$('#tiles').addEventListener('click', e => {
+  const rm = e.target.closest('[data-rm]'); if (!rm) return;
+  const p = photos.find(x => x.pid == rm.dataset.rm); if (p) { p.removed = true; renderTiles(); }
+});
+$('#tiles').addEventListener('input', e => { const t = e.target.closest('[data-tag]'); if (t) { const p = photos.find(x => x.pid == t.dataset.tag); if (p) p.tags = t.value; } });
+$('#tiles').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.tag')) { e.preventDefault(); e.target.blur(); } });
+$('#summary').addEventListener('click', e => {
+  if (e.target.id === 'rmFlagged') { flagged().forEach(p => p.removed = true); renderTiles(); }
+  if (e.target.id === 'clearAll' && confirm('Remove all the photos you picked?')) { draft = null; photos = []; $('#againNote').style.display = 'none'; renderTiles(); }
+});
+
+async function refreshFlags() {
+  if (!draft) return;
+  try {
+    const d = await api(`/api/drafts/${draft}?kind=${$('#kind').value}`);
+    const byPid = Object.fromEntries(d.photos.map(p => [p.pid, p]));
+    photos.forEach(p => { if (byPid[p.pid]) p.flags = byPid[p.pid].flags; });
+    renderTiles();
+  } catch (e) { $('#err').textContent = e.message; }
+}
+
+$('#files').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
+  $('#err').textContent = '';
+  try { if (!draft) draft = (await api('/api/drafts', {method:'POST'})).id; }
+  catch (err) { $('#err').textContent = err.message; return; }
+  uploading += files.length; $('#checkbar').style.display = 'block'; renderTiles();
+  const total = files.length; let done = 0, failed = [];
+  const queue = files.slice();
+  async function one() {
+    while (queue.length) {
+      const f = queue.shift();
+      const fd = new FormData(); fd.append('photo', f, f.name);
+      try {
+        const r = await api(`/api/drafts/${draft}/photos`, {method:'POST', body: fd});
+        photos.push({pid: r.pid, name: f.name, thumb: `/api/drafts/${draft}/thumb/${r.pid}`, tags: '', flags: null});
+      } catch (err) { failed.push(err.message); }
+      done++; uploading--;
+      $('#checkbar div').style.width = (100 * done / total) + '%';
+      if (done % 4 === 0 || !queue.length) renderTiles();
+    }
+  }
+  await Promise.all([one(), one(), one()]);
+  photos.sort((a, b) => a.pid - b.pid);
+  $('#checkbar').style.display = 'none';
+  if (failed.length) $('#err').textContent = `${failed.length} file${failed.length===1?'':'s'} couldn't be used: ${failed[0]}`;
+  await refreshFlags();
+};
+
+/* ---------------- choices, estimates, gentle advice ---------------- */
+$('#presets').onclick = e => { const b = e.target.closest('button'); if (!b) return; setPreset(b.dataset.p); };
+function setPreset(p) { preset = p; document.querySelectorAll('#presets button').forEach(x => x.classList.toggle('on', x.dataset.p === p)); adviseNote(); updateAutoSteps(); }
+$('#kind').onchange = () => { const style = $('#kind').value === 'style'; $('#autocrop').checked = !style; refreshFlags(); };
+$('#name').oninput = e => { e.target.value = e.target.value.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, ''); };
+$('#steps').oninput = () => updateEstimates();
+$('#bgremove').onchange = () => updateEstimates();
+
+function adviseNote() {
+  const n = kept().length, el = $('#presetNote');
+  if (!n) { el.innerHTML = ''; return; }
+  if (preset === 'best' && n < 25) el.innerHTML = `<div class="note">Best works best with 40+ varied photos. With ${n} photos, Good will give you a similar result faster — or add more photos. <button class="btn" onclick="setPreset('good')">Switch to Good</button></div>`;
+  else if (preset === 'good' && n < 12) el.innerHTML = `<div class="note">With only ${n} photos, a Quick test is a good first try — or add more photos (20–40 is best). <button class="btn" onclick="setPreset('quick')">Switch to Quick test</button></div>`;
+  else el.innerHTML = '';
+}
+let estTimer = null;
+function updateEstimates() {
+  adviseNote();
+  clearTimeout(estTimer);
+  estTimer = setTimeout(async () => {
+    const n = kept().length || 20;
+    try {
+      est = await api(`/api/estimate?photos=${n}&steps=${parseInt($('#steps').value) || 0}&bg_remove=${$('#bgremove').checked}`);
+      for (const k of ['quick','good','best']) $('#t-' + k).textContent = 'about ' + fmt(est[k].seconds);
+      updateAutoSteps();
+      $('#go').textContent = est.busy ? `Add to the line (starts in about ${fmt(est.wait_s)})` : 'Start training';
+    } catch {}
+  }, 250);
+}
+function updateAutoSteps() { if (est) $('#autoSteps').textContent = est[preset].steps + ' steps for ' + (kept().length || 20) + ' photos'; }
+
+/* ---------------- notification settings ---------------- */
+async function loadSettings() { try { $('#webhook').value = (await api('/api/settings')).webhook_url || ''; } catch {} }
+$('#saveHook').onclick = async () => { try { await postJSON('/api/settings', {webhook_url: $('#webhook').value.trim()}); $('#hookMsg').textContent = '✅ Saved.'; } catch (e) { $('#hookMsg').textContent = e.message; } };
+$('#testHook').onclick = async () => {
+  try { await postJSON('/api/settings', {webhook_url: $('#webhook').value.trim()}); const r = await api('/api/settings/test', {method:'POST'}); $('#hookMsg').textContent = '✅ ' + r.message; }
+  catch (e) { $('#hookMsg').textContent = e.message; }
+};
+
+/* ---------------- start ---------------- */
+$('#go').onclick = async () => {
+  $('#err').textContent = '';
+  const name = $('#name').value.trim();
+  if (uploading) return $('#err').textContent = 'Please wait until all photos are checked.';
+  if (kept().length < 5) return $('#err').textContent = 'Please choose at least 5 photos (20–40 is best).';
+  if (!/^[a-z][a-z0-9_]{2,39}$/.test(name)) return $('#err').textContent = 'Name: start with a letter, letters/numbers/_ only, like biscuit_dog.';
+  const k = kept(), tags = {}; k.forEach(p => { if ((p.tags || '').trim()) tags[p.pid] = p.tags.trim(); });
+  $('#go').disabled = true; $('#go').textContent = 'Starting…';
+  try {
+    const r = await postJSON('/api/jobs', {draft, name, kind: $('#kind').value, preset, keep: k.map(p => p.pid), tags,
+      autocrop: $('#autocrop').checked, bg_remove: $('#bgremove').checked, steps: parseInt($('#steps').value) || null});
+    draft = null; photos = []; $('#name').value = ''; $('#againNote').style.display = 'none'; renderTiles();
+    location.hash = 'job=' + r.id;
+  } catch (e) { $('#err').textContent = e.message; }
+  finally { $('#go').disabled = false; updateEstimates(); }
+};
+
+async function gpuLine() {
+  try { const g = await (await fetch('/api/gpu')).json(); if (!g.name) return '';
+    return `🖥️ ${g.name}: ${g.util}% busy · ${g.mem_used_gb}/${g.mem_total_gb} GB memory · ${g.temp_c}°C · ${g.power_w} W`; } catch { return ''; }
+}
+
+/* ---------------- home: trainings and the waiting line ---------------- */
+async function showHome() {
+  $('#home').style.display = ''; $('#job').style.display = 'none';
+  let jobs = [];
+  try { jobs = await api('/api/jobs'); } catch (e) { $('#jobs').innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+  const nq = jobs.filter(j => j.status === 'queued').length;
+  $('#jobs').innerHTML = jobs.length ? jobs.map(j => {
+    let sub = `${j.photos ?? '?'} photos · ${j.preset_label}`, acts = '', extra = '';
+    if (j.status === 'running') { sub = `${esc(j.phase || 'Training')} · about ${fmt(j.eta_s)} left`; extra = `<div class="mini"><div style="width:${j.pct||0}%"></div></div>`; }
+    if (j.status === 'queued') {
+      sub = `#${j.position} in line · starts in about ${fmt(j.starts_in_s)} · takes about ${fmt(j.est_s)}`;
+      acts = `${j.position > 1 ? `<button title="Move up" onclick="mv('${j.id}','up')">↑</button>` : ''}${j.position < nq ? `<button title="Move down" onclick="mv('${j.id}','down')">↓</button>` : ''}<button title="Cancel" onclick="if(confirm('Take ${esc(j.name)} out of the line?'))act('${j.id}','cancel')">✕</button>`;
+    }
+    return `<div class="qrow"><a href="#job=${j.id}"><b>${esc(j.name)}</b> <span class="pill ${j.status}">${STATUS[j.status]||j.status}</span><br><span class="hint">${sub}</span>${extra}</a><div class="acts">${acts}</div></div>`;
+  }).join('') : '<span class="hint">None yet.</span>';
+  $('#gpuHome').textContent = await gpuLine();
+}
+async function mv(id, direction) { try { await postForm(`/api/jobs/${id}/move`, {direction}); } catch (e) { alert(e.message); } showHome(); }
+async function act(id, a) { try { await api(`/api/jobs/${id}/${a}`, {method:'POST'}); } catch (e) { alert(e.message); } route(); }
+
+/* ---------------- one training ---------------- */
+async function choose(id, step) { try { await postForm(`/api/jobs/${id}/choose`, {step}); } catch (e) { alert(e.message); } showJob(id); }
+async function sendDT(id, name) {
+  if (!confirm(`Send ${name} to Draw Things?\n\nThe Draw Things server on this PC will restart so it can see ${name}. That takes about 20 seconds. If someone is making a picture with it right now, that picture will stop.`)) return;
+  try { await api(`/api/jobs/${id}/drawthings`, {method:'POST'}); } catch (e) { alert(e.message); }
+  showJob(id);
+}
+async function again(id) {
+  try {
+    const r = await api(`/api/jobs/${id}/again`, {method:'POST'});
+    draft = r.draft.id; photos = r.draft.photos.map(p => ({...p}));
+    const s = r.settings;
+    $('#name').value = s.name; $('#kind').value = s.kind; setPreset(s.preset);
+    $('#autocrop').checked = s.autocrop; $('#bgremove').checked = s.bg_remove; $('#steps').value = s.steps || '';
+    $('#againNote').textContent = `Loaded ${photos.length} photos, tags and settings from ${s.name}. Change anything you like, then press Start. Keep the same name to replace it, or pick a new one to keep both.`;
+    $('#againNote').style.display = '';
+    location.hash = ''; renderTiles(); window.scrollTo(0, 0);
+  } catch (e) { alert(e.message); }
+}
+
+function dtBlock(j) {
+  const dt = j.drawthings || {}, id = j.id, n = esc(j.name);
+  if (!dt.addon) return `<p>Tap <b>Download</b>, then <b>Save to Files</b>. In Draw Things: model menu → <b>LoRA</b> → <b>Manage</b> → <b>Import</b>, and pick the file.</p>`;
+  if (dt.state === 'converting') return `<p>⏳ Getting ${n} ready for Draw Things…</p>`;
+  if (dt.state === 'restarting') return `<p>⏳ Restarting the Draw Things server (about 20 seconds)…</p>`;
+  if (dt.state === 'ready') return `<p class="ok">✅ ${esc(dt.message)}</p>${dt.dry_run ? '<p class="hint">(Test mode: nothing was actually restarted.)</p>' : ''}<button class="btn" onclick="sendDT('${id}','${n}')">Send again</button>`;
+  let html = dt.state === 'failed' ? `<p class="err">${esc(dt.message || 'That did not work.')}</p>` : '';
+  if (dt.can_restart) html += `<button class="big" onclick="sendDT('${id}','${n}')">Send to Draw Things</button><p class="hint">Puts the version you picked onto your Draw Things server, ready to use from your iPad or iPhone.</p>`;
+  else html += `<p>${dt.converted ? '✅ It is on your Draw Things server.' : '⏳ It is being copied to your Draw Things server.'} Restart the Draw Things server on the PC once (when nobody is using it) so it shows up in the list.</p>`;
+  return html;
+}
+
+async function showJob(id) {
+  $('#home').style.display = 'none'; const el = $('#job'); el.style.display = '';
+  const r = await fetch('/api/jobs/' + id); if (!r.ok) { location.hash = ''; return; }
+  const j = await r.json(), p = j.progress, pct = p.total ? Math.round(100*p.step/p.total) : 0;
+  const running = j.status === 'running', done = j.status === 'done';
+  const vpics = v => v.samples.map(s => `<img loading="lazy" src="${s.url}">`).join('');
+  let html = `<p><a class="back" href="#">← All trainings</a></p>
+  <div class="card"><h2>${esc(j.name)} <span class="pill ${j.status}">${STATUS[j.status]||j.status}</span></h2>
+    <div class="row"><span>${j.photos} photos${j.tagged ? ' (' + j.tagged + ' tagged)' : ''} · ${j.preset_label} · ${j.steps || p.total} steps</span><span>${p.phase ? esc(p.phase) : ''}</span></div>
+    <div class="bar"><div style="width:${done?100:pct}%"></div></div>
+    <div class="row"><span>Step ${p.step} of ${p.total} (${done?100:pct}%)</span><span>${running && p.eta_s != null ? 'About ' + fmt(p.eta_s) + ' left' + (p.s_per_step ? ' (measured on your GPU)' : '') : ''}</span></div>
+    ${j.status === 'queued' && j.queue ? `<p class="hint">#${j.queue.position} in line. Starts in about ${fmt(j.queue.starts_in_s)} and takes about ${fmt(j.queue.est_s)}.</p>` : ''}
+    <p class="gpu" id="gpuJob"></p>
+    ${j.error ? `<p class="err">${esc(j.error)}</p>` : ''}
+    ${(j.notes || []).map(n => `<p class="note">${esc(n)}</p>`).join('')}
+    ${['failed','cancelled','interrupted'].includes(j.status) ? `<button class="btn" onclick="act('${id}','resume')">▶︎ Resume</button>` : ''}
+    ${['queued','running'].includes(j.status) ? `<button class="btn" onclick="if(confirm('Stop this training?'))act('${id}','cancel')">■ Stop</button>` : ''}
+    ${['done','failed','cancelled','interrupted'].includes(j.status) ? `<button class="btn" onclick="again('${id}')">↻ Train again</button>` : ''}
+  </div>`;
+  if (done) {
+    const chosen = j.versions.find(v => v.step === j.chosen_step) || j.versions[j.versions.length - 1];
+    html += `<div class="card steps3"><h2>🎉 ${esc(j.name)} is ready! What to do next:</h2>
+      <h3>1. Pick your favorite version</h3>
+      <p class="hint">It saved a version every so often while learning. The last one has practiced most, but if its pictures look overdone, tap an earlier one.</p>
+      <div class="versions">${j.versions.map(v => `<button class="version ${v.step === j.chosen_step ? 'on' : ''}" onclick="choose('${id}', ${v.step})">
+        <div class="vt"><span><b>Version ${v.number}</b> <span class="hint">· step ${v.step}${v.last ? ' · most practiced' : ''}</span></span><span>${v.step === j.chosen_step ? '✅ Picked' : 'Tap to pick'}</span></div>
+        ${v.samples.length ? `<div class="grid">${vpics(v)}</div>` : ''}</button>`).join('')}</div>
+      <h3>2. Put it in Draw Things</h3>${dtBlock(j)}
+      <p><a class="btn" href="/api/jobs/${id}/files/lora/${esc(j.name)}.safetensors">⬇︎ Download ${esc(j.name)}.safetensors</a></p>
+      <h3>3. Make pictures</h3>
+      <ol><li>In <b>Draw Things</b>, choose <b>FLUX.2 [klein] 4B</b> as the model.</li>
+      <li>Under <b>LoRA</b>, pick <b>${esc(j.name)}</b> and set it to about 100%.</li>
+      <li>Type <b>${esc(j.name)}</b> in your prompt, e.g. <i>"a photo of ${esc(j.name)} as an astronaut"</i>${j.tagged ? '. You can also use your tags, like <i>"…holding a frisbee"</i>' : ''}.</li></ol>
+      <p class="hint">With Server Offload on, Draw Things renders on your PC's GPU.</p></div>`;
+    if (j.before.length && chosen && chosen.samples.length) {
+      html += `<div class="card"><h2>Before and after</h2><p class="hint">Same picture request, without and with ${esc(j.name)} (version ${chosen.number}).</p>
+        ${j.before.map((b, i) => chosen.samples[i] ? `<div class="ba"><figure><a href="${b.url}" target="_blank"><img loading="lazy" src="${b.url}"></a><figcaption>Without</figcaption></figure><figure><a href="${chosen.samples[i].url}" target="_blank"><img loading="lazy" src="${chosen.samples[i].url}"></a><figcaption>With ${esc(j.name)}</figcaption></figure></div>` : '').join('')}</div>`;
+    }
+  } else {
+    const byStep = {}; j.samples.forEach(s => (byStep[s.step] ||= []).push(s));
+    const steps = Object.keys(byStep).map(Number).sort((a,b) => b-a);
+    const gallery = steps.map(st => `<h3>${st === 0 ? 'Before learning (step 0)' : 'After ' + st + ' steps'}</h3><div class="grid">${byStep[st].sort((a,b)=>a.index-b.index).map(s => `<a href="${s.url}" target="_blank"><img loading="lazy" src="${s.url}"></a>`).join('')}</div>`).join('');
+    html += `<div class="card samples"><h2>Watch it learn</h2><p class="hint">Every so often it saves a version and draws the same three test pictures. Watch them turn into <i>your</i> ${esc(j.name)}.</p>${gallery || '<p class="hint">The first pictures appear once the model is loaded.</p>'}</div>`;
+  }
+  if (j.thumbs.length) html += `<div class="card"><h2>What it's studying</h2><div class="thumbs">${j.thumbs.map(t => `<img src="${t}">`).join('')}</div>${j.cropped ? `<p class="hint">${j.cropped} photos were zoomed in on the subject.</p>` : ''}</div>`;
+  html += `<div class="card"><details><summary>Technical log</summary><pre id="log">…</pre></details></div>`;
+  el.innerHTML = html;
+  $('#gpuJob').textContent = await gpuLine();
+  el.querySelector('details').ontoggle = async e => { if (e.target.open) $('#log').textContent = (await (await fetch('/api/jobs/' + id + '/log')).json()).log; };
+}
+
+function route() {
+  clearInterval(timer);
+  const m = location.hash.match(/job=([0-9a-f]{12})/);
+  const busy = () => document.querySelector('details[open]:not(.adv)') || document.activeElement?.matches('input');
+  if (m) { showJob(m[1]); timer = setInterval(() => { if (!busy()) showJob(m[1]); }, 8000); }
+  else { showHome(); timer = setInterval(() => { if (!busy()) showHome(); }, 15000); }
+}
+window.onhashchange = route; loadSettings(); updateEstimates(); route();
+</script>
+</body>
+</html>

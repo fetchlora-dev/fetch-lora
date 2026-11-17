@@ -1,0 +1,9 @@
+.git
+data
+diary
+docs
+testdata
+*.md
+.env
+**/*.bak-*
+**/__pycache__
