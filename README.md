@@ -21,6 +21,10 @@ your dog, your cat, an object you own, or an art style. After training you type 
 like `biscuit_dog` in a prompt, and the model draws *your* dog:
 *"a photo of biscuit_dog walking through a sunlit meadow."*
 
+The big model itself never changes. A LoRA is more like sticky notes in a textbook: small,
+removable, and you can swap them out. Want the one-minute version? Watch the start of
+[Black Forest Labs' LoRA video](https://www.youtube.com/watch?v=f47xyFc9DxA).
+
 Training a LoRA normally means Python scripts, config files and a lot of settings. Fetch LoRA
 hides all of that behind one web page:
 
