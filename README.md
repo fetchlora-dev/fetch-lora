@@ -1,4 +1,6 @@
-# 🐕 Fetch LoRA
+<p align="center"><img src="docs/logo.png" width="128" alt="Fetch LoRA pup"></p>
+
+<h1 align="center">Fetch LoRA</h1>
 
 > Named for Frannie, our good girl, who fetched us our very good boy.
 
