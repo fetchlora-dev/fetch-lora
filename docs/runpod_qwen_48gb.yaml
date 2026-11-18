@@ -1,0 +1,75 @@
+# Qwen-Image LoRA on a rented 48 GB GPU (e.g. RunPod A6000 / L40S), made by Fetch LoRA's own
+# config builder (Best, 20 photos). See docs/MODELS.md "Qwen-Image on a rented GPU". Untested on RunPod.
+# Change: name / trigger_word / prompts (biscuit_dog -> your word), steps (photos x 60, 2000-4000),
+# and the two /workspace paths if you put things elsewhere.
+job: extension
+config:
+  name: biscuit_dog
+  process:
+  - type: diffusion_trainer
+    training_folder: /workspace/output
+    device: cuda
+    trigger_word: biscuit_dog
+    performance_log_every: 10
+    network:
+      type: lora
+      linear: 32
+      linear_alpha: 32
+    save:
+      dtype: bf16
+      save_every: 400
+      max_step_saves_to_keep: 8
+      push_to_hub: false
+    datasets:
+    - folder_path: /workspace/biscuit_dog/images
+      caption_ext: txt
+      caption_dropout_rate: 0.05
+      cache_latents_to_disk: true
+      resolution:
+      - 512
+      - 768
+      - 1024
+      flip_x: false
+    train:
+      batch_size: 1
+      steps: 2000
+      gradient_accumulation: 1
+      train_unet: true
+      train_text_encoder: false
+      gradient_checkpointing: true
+      noise_scheduler: flowmatch
+      optimizer: adamw8bit
+      timestep_type: weighted
+      content_or_style: balanced
+      optimizer_params:
+        weight_decay: 0.0001
+      unload_text_encoder: false
+      cache_text_embeddings: false
+      lr: 0.0001
+      dtype: bf16
+      skip_first_sample: false
+    model:
+      name_or_path: Qwen/Qwen-Image
+      arch: qwen_image
+      quantize: true
+      qtype: qfloat8
+      quantize_te: true
+      qtype_te: qfloat8
+      low_vram: false
+    sample:
+      sampler: flowmatch
+      sample_every: 400
+      width: 768
+      height: 768
+      samples:
+      - prompt: a photo of biscuit_dog, a dog, sitting in a sunny meadow
+      - prompt: biscuit_dog, a dog, as an astronaut on the moon, cinematic lighting
+      - prompt: a renaissance oil painting of biscuit_dog, a dog, in a golden frame
+      neg: ''
+      seed: 42
+      walk_seed: false
+      guidance_scale: 3
+      sample_steps: 25
+meta:
+  name: biscuit_dog
+  version: '1.0'

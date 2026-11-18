@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 
+import models as mm
 import photocheck
 
 try:  # iPhone/iPad photos from the Files app may still be HEIC
@@ -47,8 +48,8 @@ DRAFTS = JOBS / ".drafts"          # photos picked but not started yet (checked,
 SETTINGS_FILE = JOBS / ".settings.json"
 EXPORTS = Path(os.environ.get("DRAGON_EXPORTS", "/exports"))
 AITK = Path(os.environ.get("AITK_DIR", "/app/ai-toolkit"))
-BASE_MODEL = os.environ.get("DRAGON_BASE_MODEL", "black-forest-labs/FLUX.2-klein-base-4B")
-ARCH = os.environ.get("DRAGON_ARCH", "flux2_klein_4b")
+# Base models (Klein 4B, Z-Image, Qwen-Image) live in models.py; Klein 4B is the default.
+BASE_MODEL = mm.MODELS[mm.DEFAULT_MODEL]["repo"]
 GPU_ID = os.environ.get("CUDA_VISIBLE_DEVICES", "")
 # Optional: extra folders the finished LoRA is copied into (comma separated),
 # e.g. a folder that a Draw Things gRPC server can see.
@@ -73,17 +74,9 @@ KINDS = {
     "style": ("an art style", "style"),
 }
 
-# Steps grow with the number of photos for Good and Best. Best is quality first (up to 6000 steps);
-# if the last version over-learns, the version picker can fall back to an earlier one.
-# Quick stays a fixed 300-step check. s_per_step is only a first guess: once this PC has trained,
-# its own measured speed is used (see measured_speed()).
-PRESETS = {
-    "quick": {"label": "Quick test", "steps": 300, "per_photo": 0, "min": 300, "max": 300, "res": [512], "s_per_step": 0.94},
-    "good": {"label": "Good", "steps": 1500, "per_photo": 25, "min": 800, "max": 2000, "res": [512, 768, 1024], "s_per_step": 1.9},
-    "best": {"label": "Best", "steps": 3000, "per_photo": 60, "min": 2000, "max": 6000, "res": [512, 768, 1024], "s_per_step": 2.0},
-}
-LOAD_S = 150          # loading the model onto the GPU (measured ~2.5 min)
-SAMPLE_ROUND_S = 80   # three 768 px test pictures (measured ~26 s each)
+# Steps, speeds and per-model settings live in models.py (the model matrix). PRESETS keeps the
+# Klein 4B numbers under the old names for anything that still reads them.
+PRESETS = {k: dict(v, label=mm.PRESET_LABELS[k]) for k, v in mm.MODELS[mm.DEFAULT_MODEL]["presets"].items()}
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,39}$")
 ID_RE = re.compile(r"[0-9a-f]{12}")
@@ -150,10 +143,10 @@ def read_settings() -> dict:
 # --------------------------------------------------------------------------- #
 # Planning: steps, checkpoints, time estimates
 # --------------------------------------------------------------------------- #
-def plan_steps(preset: str, photos: int, override: Optional[int] = None) -> int:
+def plan_steps(preset: str, photos: int, override: Optional[int] = None, model: str = mm.DEFAULT_MODEL) -> int:
     if override:
         return max(50, min(8000, int(override)))
-    p = PRESETS[preset]
+    p = mm.preset_cfg(model, preset)
     if not p["per_photo"]:
         return p["steps"]
     return max(p["min"], min(p["max"], int(photos) * p["per_photo"]))
@@ -165,41 +158,44 @@ def save_every(steps: int) -> int:
     return max(10, int(math.ceil(steps / n / 10.0)) * 10)
 
 
-def measured_speed(preset: str) -> float:
+def measured_speed(preset: str, model: str = mm.DEFAULT_MODEL) -> float:
     """Seconds per step on THIS PC's GPU, learned from earlier trainings (default: our RTX 5070 Ti numbers)."""
     try:
-        v = float(read_settings().get("speed", {}).get(preset, 0))
+        v = float(read_settings().get("speed", {}).get(mm.speed_key(model, preset), 0))
         if 0.05 < v < 60:
             return v
     except Exception:
         pass
-    return PRESETS[preset]["s_per_step"]
+    return mm.preset_cfg(model, preset)["s_per_step"]
 
 
-def remember_speed(preset: str, sps: float) -> None:
+def remember_speed(preset: str, sps: float, model: str = mm.DEFAULT_MODEL) -> None:
     try:
         with lock:
             st = read_settings()
-            st.setdefault("speed", {})[preset] = round(sps, 3)
+            st.setdefault("speed", {})[mm.speed_key(model, preset)] = round(sps, 3)
             SETTINGS_FILE.write_text(json.dumps(st, indent=2))
     except Exception:
         pass
 
 
-def estimate_seconds(preset: str, photos: int, steps: int, bg_remove: bool = False) -> int:
-    p = PRESETS[preset]
+def estimate_seconds(preset: str, photos: int, steps: int, bg_remove: bool = False,
+                     model: str = mm.DEFAULT_MODEL) -> int:
+    m = mm.MODELS[model]
+    p = mm.preset_cfg(model, preset)
     every = save_every(steps)
     # step 0 + each saved version (+ ai-toolkit draws the last step twice when it lands on a save)
     rounds = 1 + int(math.ceil(steps / every)) + (1 if steps % every == 0 else 0)
     prep = photos * (2.0 if bg_remove else 0.3) + (60 if bg_remove else 0)
     caching = photos * len(p["res"]) * 0.5
-    return int(LOAD_S + steps * measured_speed(preset) + rounds * SAMPLE_ROUND_S + prep + caching)
+    return int(m["load_s"] + steps * measured_speed(preset, model) + rounds * m["sample_round_s"] + prep + caching)
 
 
 def job_estimate(s: dict) -> int:
     o = s.get("options", {})
-    steps = s.get("steps") or PRESETS[s["preset"]]["steps"]
-    return estimate_seconds(s["preset"], s.get("photos", 20), steps, bool(o.get("bg_remove")))
+    model = mm.model_of(s)
+    steps = s.get("steps") or mm.preset_cfg(model, s["preset"])["steps"]
+    return estimate_seconds(s["preset"], s.get("photos", 20), steps, bool(o.get("bg_remove")), model)
 
 
 def sample_prompts(trigger: str, kind: str) -> List[str]:
@@ -218,8 +214,11 @@ def sample_prompts(trigger: str, kind: str) -> List[str]:
 
 
 def build_config(d: Path, s: dict) -> Path:
-    p = PRESETS[s["preset"]]
+    model = mm.model_of(s)
+    p = mm.preset_cfg(model, s["preset"])
     steps = int(s.get("steps") or p["steps"])
+    gpu_total = (gpu_stats() or {}).get("mem_total_gb")
+    low_vram = os.environ.get("DRAGON_LOW_VRAM", "0") == "1"
     every = save_every(steps)
     trigger, kind = s["name"], s["kind"]
     cls, mode = KINDS[kind]
@@ -247,7 +246,7 @@ def build_config(d: Path, s: dict) -> Path:
                             "caption_ext": "txt",
                             "caption_dropout_rate": 0.05,
                             "cache_latents_to_disk": True,
-                            "resolution": p["res"],
+                            "resolution": mm.resolutions(model, s["preset"], gpu_total),
                             "flip_x": False,
                         }
                     ],
@@ -269,16 +268,7 @@ def build_config(d: Path, s: dict) -> Path:
                         "dtype": "bf16",
                         "skip_first_sample": False,
                     },
-                    "model": {
-                        "name_or_path": BASE_MODEL,
-                        "arch": ARCH,
-                        "quantize": True,
-                        "qtype": "qfloat8",
-                        "quantize_te": True,
-                        "qtype_te": "qfloat8",
-                        "low_vram": os.environ.get("DRAGON_LOW_VRAM", "0") == "1",
-                        "model_kwargs": {"match_target_res": False},
-                    },
+                    "model": mm.model_block(model, gpu_total, low_vram),
                     "sample": {
                         "sampler": "flowmatch",
                         "sample_every": every,  # test pictures for every saved version
@@ -288,14 +278,15 @@ def build_config(d: Path, s: dict) -> Path:
                         "neg": "",
                         "seed": 42,
                         "walk_seed": False,
-                        "guidance_scale": 4,
-                        "sample_steps": 30,
+                        "guidance_scale": mm.MODELS[model]["sample"]["guidance_scale"],
+                        "sample_steps": mm.MODELS[model]["sample"]["sample_steps"],
                     },
                 }
             ],
         },
         "meta": {"name": trigger, "version": "1.0"},
     }
+    cfg["config"]["process"][0]["train"].update(mm.train_overrides(model, gpu_total))
     path = d / "config.yaml"
     path.write_text(yaml.safe_dump(cfg, sort_keys=False))
     return path
@@ -419,7 +410,7 @@ def checkpoints(d: Path, s: dict) -> List[dict]:
             if m:
                 out[int(m.group(1))] = f
             elif f.name == f"{s['name']}.safetensors":
-                out[int(s.get("steps") or PRESETS[s["preset"]]["steps"])] = f
+                out[int(s.get("steps") or mm.preset_cfg(mm.model_of(s), s["preset"])["steps"])] = f
     return [{"step": k, "file": v} for k, v in sorted(out.items())]
 
 
@@ -446,17 +437,29 @@ def deliver(d: Path, s: dict) -> dict:
     if ck is None:
         raise RuntimeError("Training finished but the LoRA file is missing")
     name = f"{s['name']}.safetensors"
-    copy_atomic(ck["file"], EXPORTS / name)
+    sub = lora_subfolder(s)
+    (EXPORTS / sub).mkdir(parents=True, exist_ok=True)
+    copy_atomic(ck["file"], EXPORTS / sub / name)
     copied = []
     for target in DELIVER_TO:
         try:
-            target.mkdir(parents=True, exist_ok=True)
-            copy_atomic(ck["file"], target / name)
+            (target / sub).mkdir(parents=True, exist_ok=True)
+            copy_atomic(ck["file"], target / sub / name)
             copied.append(str(target))
         except Exception as e:  # keep going, report it
             copied.append(f"{target} (failed: {e})")
     return {"file": name, "size_mb": round(ck["file"].stat().st_size / 1e6, 1), "copied_to": copied,
             "step": ck["step"]}
+
+
+def lora_subfolder(s: dict) -> str:
+    """'' for Klein 4B (the Draw Things add-on converts those); e.g. 'zimage' for other models.
+
+    The add-on only looks at *.safetensors directly in the export folder and converts them as
+    Klein 4B, so LoRAs for other base models go one folder down where it never looks.
+    """
+    model = mm.model_of(s)
+    return "" if mm.MODELS[model]["dt_send"] else model
 
 
 def dt_addon() -> Optional[dict]:
@@ -473,6 +476,9 @@ def dt_addon() -> Optional[dict]:
 def dt_view(d: Path, s: dict) -> dict:
     hb = dt_addon()
     view = {"addon": bool(hb), "can_restart": bool(hb and hb.get("can_restart")), "state": "idle"}
+    if not mm.MODELS[mm.model_of(s)]["dt_send"]:  # the PC's Draw Things server only has Klein 4B
+        view.update(unsupported=True, can_restart=False)
+        return view
     src = EXPORTS / f"{s['name']}.safetensors"
     try:
         st = json.loads((DT_STATUS / f"{s['name']}.json").read_text())
@@ -623,7 +629,8 @@ def log_tail(d: Path, lines: int = 40) -> str:
 
 
 def progress(d: Path, s: dict) -> dict:
-    out = {"step": 0, "total": int(s.get("steps") or PRESETS[s["preset"]]["steps"]), "loss": None, "phase": None}
+    model = mm.model_of(s)
+    out = {"step": 0, "total": int(s.get("steps") or mm.preset_cfg(model, s["preset"])["steps"]), "loss": None, "phase": None}
     tail = log_tail(d, 200)
     for line in reversed(tail.split("\n")):
         m = STEP_RE.search(line)
@@ -648,7 +655,8 @@ def progress(d: Path, s: dict) -> dict:
             elif "loading" in low or "quantiz" in low:
                 out["phase"] = "Loading the AI model onto the GPU"
             else:
-                out["phase"] = "Getting ready (the first run ever also downloads the base model, ~16 GB)"
+                out["phase"] = (f"Getting ready (the first {mm.MODELS[model]['short']} run also downloads "
+                                f"the base model, ~{mm.MODELS[model]['download_gb']} GB)")
         else:
             out["phase"] = "Learning"
         sps = measure_speed(tail, s["name"], save_every(out["total"]))
@@ -656,9 +664,9 @@ def progress(d: Path, s: dict) -> dict:
             out["s_per_step"] = round(sps, 2)
             left_rounds = sum(1 for k in range(out["step"] + 1, out["total"] + 1)
                               if k % save_every(out["total"]) == 0 or k == out["total"])
-            out["eta_s"] = int(sps * (out["total"] - out["step"]) + left_rounds * SAMPLE_ROUND_S)
+            out["eta_s"] = int(sps * (out["total"] - out["step"]) + left_rounds * mm.MODELS[model]["sample_round_s"])
             if abs(round(sps, 2) - s.get("speed_saved", 0)) > 0.05:  # remember this GPU's real speed
-                remember_speed(s["preset"], sps)
+                remember_speed(s["preset"], sps, model)
                 update_state(d, speed_saved=round(sps, 2))
         if out.get("eta_s") is None:
             out["eta_s"] = max(60, job_estimate(s) - int(time.time() - s.get("started", time.time())))
@@ -731,7 +739,11 @@ def public(d: Path) -> dict:
     s["progress"] = progress(d, s)
     smp = samples(d, s)
     s["samples"] = smp
-    s["preset_label"] = PRESETS[s["preset"]]["label"]
+    s["preset_label"] = mm.PRESET_LABELS[s["preset"]]
+    model = mm.model_of(s)
+    s["model"] = model
+    s["model_label"] = mm.MODELS[model]["label"]
+    s["dt_model"] = mm.MODELS[model]["dt_model"]
     s["estimate_s"] = job_estimate(s)
     s["queue"] = queue_info().get(d.name)
     thumbs = sorted((d / "images").glob("*.jpg"))[:12]
@@ -741,7 +753,7 @@ def public(d: Path) -> dict:
     for x in smp:
         by_step.setdefault(x["step"], []).append(x)
     cks = checkpoints(d, s)
-    total = int(s.get("steps") or PRESETS[s["preset"]]["steps"])
+    total = int(s.get("steps") or mm.preset_cfg(model, s["preset"])["steps"])
     chosen = chosen_checkpoint(d, s)
     s["versions"] = []
     for i, c in enumerate(cks, 1):
@@ -850,16 +862,29 @@ def index() -> str:
 
 @app.get("/api/info")
 def info() -> dict:
+    g = gpu_stats()
     return {"base_model": BASE_MODEL, "presets": PRESETS, "kinds": {k: v[0] for k, v in KINDS.items()},
-            "gpu": gpu_stats(), "drawthings_addon": bool(dt_addon())}
+            "gpu": g, "models": mm.catalog(g), "drawthings_addon": bool(dt_addon())}
+
+
+@app.get("/api/models")
+def list_models() -> dict:
+    """The model matrix for the picker: labels, notes, and whether THIS PC's GPU can train each one."""
+    g = gpu_stats()
+    return {"gpu": g, "default": mm.DEFAULT_MODEL, "models": mm.catalog(g)}
 
 
 @app.get("/api/estimate")
 def estimate(photos: int = 20, steps: int = 0, bg_remove: bool = False) -> dict:
-    out = {}
-    for k in PRESETS:
+    out = {"models": {}}
+    for k in PRESETS:  # top level: Klein 4B, as before
         st = plan_steps(k, photos, steps or None)
         out[k] = {"steps": st, "seconds": estimate_seconds(k, photos, st, bg_remove)}
+    for m, spec in mm.MODELS.items():  # every model x level, for the picker
+        out["models"][m] = {}
+        for k in spec["presets"]:
+            st = plan_steps(k, photos, steps or None, m)
+            out["models"][m][k] = {"steps": st, "seconds": estimate_seconds(k, photos, st, bg_remove, m)}
     running = [s for _, s in all_jobs() if s.get("status") in ("running", "queued")]
     waits = queue_info()
     out["wait_s"] = sum(v.get("eta_s", 0) for v in waits.values() if "eta_s" in v) + \
@@ -994,7 +1019,9 @@ def list_jobs() -> list:
     for d, s in all_jobs():
         try:
             item = {"id": d.name, "name": s["name"], "status": s["status"], "created": s["created"],
-                    "preset_label": PRESETS[s["preset"]]["label"], "photos": s.get("photos")}
+                    "preset_label": mm.PRESET_LABELS[s["preset"]] + ("" if mm.model_of(s) == mm.DEFAULT_MODEL
+                                                                      else " · " + mm.MODELS[mm.model_of(s)]["short"]),
+                    "photos": s.get("photos")}
             if d.name in q:
                 item.update(q[d.name])
             if s["status"] == "running":
@@ -1014,8 +1041,14 @@ def create_job(request: Request, body: dict = Body(...)) -> dict:
     kind, preset = body.get("kind", "dog"), body.get("preset", "good")
     if not NAME_RE.match(name):
         raise HTTPException(400, "Name must start with a letter and use only letters, numbers and _ (3-40 characters), like biscuit_dog")
-    if kind not in KINDS or preset not in PRESETS:
+    model = str(body.get("model") or mm.DEFAULT_MODEL)
+    if kind not in KINDS or preset not in PRESETS or model not in mm.MODELS:
         raise HTTPException(400, "Unknown option")
+    if preset == "quick":
+        model = mm.DEFAULT_MODEL  # Quick test is always Klein 4B
+    can = mm.availability(model, preset, gpu_stats())
+    if not can["ok"]:
+        raise HTTPException(400, f"{mm.MODELS[model]['label']}: {can['reason']}")
     dd = draft_dir(str(body.get("draft", "")))
     metas = {m["pid"]: m for m in draft_metas(dd)}
     keep = [int(p) for p in body.get("keep", list(metas)) if int(p) in metas]
@@ -1042,8 +1075,9 @@ def create_job(request: Request, body: dict = Body(...)) -> dict:
     n = len(keep)
     tagged = sum(1 for p in recipe["photos"] if parse_tags(p["tags"], name))
     state = {"name": name, "kind": kind, "preset": preset, "photos": n, "status": "queued",
-             "created": time.time(), "order": time.time(), "base_model": BASE_MODEL, "tagged": tagged,
-             "steps": plan_steps(preset, n, steps_override),
+             "created": time.time(), "order": time.time(), "model": model,
+             "base_model": mm.MODELS[model]["repo"], "tagged": tagged,
+             "steps": plan_steps(preset, n, steps_override, model),
              "options": {"autocrop": autocrop, "bg_remove": bool(body.get("bg_remove")), "steps_override": steps_override},
              "origin": str(request.base_url)}
     write_state(d, state)
@@ -1128,6 +1162,9 @@ def send_to_drawthings(job_id: str) -> dict:
     s = read_state(d)
     if s.get("status") != "done":
         raise HTTPException(400, "This training isn't finished yet.")
+    if not mm.MODELS[mm.model_of(s)]["dt_send"]:
+        raise HTTPException(409, f"The Draw Things server on this PC only has Klein 4B. Download this LoRA and import it "
+                                 f"in the Draw Things app, then use it with {mm.MODELS[mm.model_of(s)]['dt_model']}.")
     hb = dt_addon()
     if not hb:
         raise HTTPException(409, "The Draw Things helper isn't running on this PC, so use Download instead.")
@@ -1168,7 +1205,7 @@ def train_again(job_id: str) -> dict:
         for src in sorted((d / "images").glob("*.jpg")):
             add_draft_photo(dd, src, src.name, ", ".join(tag_map.get(src.name, [])))
     o = s.get("options", {})
-    settings = {"name": s["name"], "kind": s["kind"], "preset": s["preset"],
+    settings = {"name": s["name"], "kind": s["kind"], "preset": s["preset"], "model": mm.model_of(s),
                 "autocrop": o.get("autocrop", KINDS[s["kind"]][1] != "style"),
                 "bg_remove": bool(o.get("bg_remove")), "steps": o.get("steps_override") or ""}
     return {"draft": draft_view(dd, s["kind"]), "settings": settings}

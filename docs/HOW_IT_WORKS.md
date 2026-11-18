@@ -52,6 +52,7 @@ flowchart LR
 | File | What it does |
 |---|---|
 | `app/server.py` | The heart of the project. A FastAPI web server that serves the page, checks the PIN, stores uploaded photos as "drafts", creates training jobs, runs a background **worker** thread that trains one job at a time, reads AI Toolkit's log to show progress, and delivers the finished LoRA. It's long (about 1,200 lines) but split into labelled sections; skim the `# ----` headings first. |
+| `app/models.py` | The model matrix: which base models can be picked at each level (Klein 4B, Z-Image, Qwen-Image), their steps, speeds, download sizes and Draw Things notes, the GPU-memory check, and each model's settings for AI Toolkit. See [MODELS.md](MODELS.md). |
 | `app/photocheck.py` | Looks at each photo on the CPU: is it blurry (OpenCV Laplacian), too small, a near-duplicate (perceptual hash), and is there a dog/person in it (torchvision's small COCO detector)? Also works out the crop box around the subject. Everything "fails soft": if a check can't run, the photo just isn't flagged. |
 | `app/bgremove.py` | Optional. A tiny stand-alone script that puts every photo in a folder on a white background using the BiRefNet_lite model. It runs as its own process so its GPU memory is fully released before training starts. |
 | `app/static/index.html` | The whole user interface: one HTML file with its CSS and JavaScript inside. It uploads photos, shows the flags, starts trainings, and refreshes the job page every few seconds. |

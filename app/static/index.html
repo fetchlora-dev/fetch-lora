@@ -99,6 +99,15 @@
   .big { width:100%; padding:16px; font-size:19px; font-weight:700; border:0; border-radius:14px; background:var(--ok); color:#06210f; }
   .big:disabled { opacity:.6; }
   .ok { color:var(--ok); }
+  .models { display:grid; gap:8px; margin-top:6px; }
+  .mcard { border:2px solid #26304a; border-radius:14px; padding:10px 12px; background:#0f1626; text-align:left; color:var(--ink); width:100%; font-size:15px; }
+  .mcard.on { border-color:var(--accent); background:#2a1d14; }
+  .mcard:disabled { opacity:.45; }
+  .mcard .mt { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .mcard .md { color:var(--dim); font-size:14px; margin-top:3px; }
+  .mcard .mw { color:#ffc46b; font-size:14px; margin-top:4px; }
+  .mcard .mx { color:var(--bad); font-size:14px; margin-top:4px; }
+  .why { font-size:14px; color:var(--dim); margin:8px 0 0; }
 </style>
 </head>
 <body>
@@ -130,6 +139,18 @@
         <button data-p="best" class="on">Best<small id="t-best">longest</small></button>
       </div>
       <div id="presetNote"></div>
+      <label for="device">Where will you use it in Draw Things? <span class="hint">— remembered on this device</span></label>
+      <select id="device">
+        <option value="unsure">Not sure</option>
+        <option value="iphone_pro">iPhone 15 Pro or later</option>
+        <option value="iphone_old">iPhone 15 / 14 or older</option>
+        <option value="ipad_m1">iPad with M1 or later (8 GB)</option>
+        <option value="ipad_16">iPad Pro with 16 GB (1 TB / 2 TB)</option>
+        <option value="mac">Mac (16 GB or more)</option>
+      </select>
+      <label>Which AI model learns it? <span class="hint" id="modelHint"></span></label>
+      <div class="models" id="models"></div>
+      <p class="why" id="whyModel"></p>
 
       <details class="adv" id="adv">
         <summary>More options (you can skip these)</summary>
@@ -156,6 +177,7 @@
 const _fetch = window.fetch; window.fetch = async (...a) => { const r = await _fetch(...a); if (r.status === 401) location.href = '/login'; return r; };
 const $ = s => document.querySelector(s);
 let preset = 'best', timer = null, draft = null, photos = [], uploading = 0, est = null, editingTags = false;
+let MODELS = null, GPU = null; const picked = {good: null, best: null};  // null = let Fetch pick
 const fmt = s => { if (s == null) return '—'; const h = Math.floor(s/3600), m = Math.max(1, Math.round((s%3600)/60)); return h ? `${h} h ${m} min` : `${m} min`; };
 const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const STATUS = {queued:'Waiting its turn', running:'Training', done:'Done', failed:'Stopped', cancelled:'Cancelled', interrupted:'Paused'};
@@ -251,7 +273,67 @@ $('#files').onchange = async e => {
 
 /* ---------------- choices, estimates, gentle advice ---------------- */
 $('#presets').onclick = e => { const b = e.target.closest('button'); if (!b) return; setPreset(b.dataset.p); };
-function setPreset(p) { preset = p; document.querySelectorAll('#presets button').forEach(x => x.classList.toggle('on', x.dataset.p === p)); adviseNote(); updateAutoSteps(); }
+function setPreset(p) { preset = p; document.querySelectorAll('#presets button').forEach(x => x.classList.toggle('on', x.dataset.p === p)); adviseNote(); renderModels(); updateAutoSteps(); }
+
+/* ---------------- model matrix: which AI model, checked against this PC's GPU and your device ---------------- */
+// Draw Things device notes (Draw Things posts, Dec 2025: Z-Image ~4 GiB at 6-bit, Qwen-Image ~11 GiB; 8 GB is the practical floor).
+const DEVICES = {
+  unsure: {label: 'your device', rules: {}},
+  iphone_pro: {label: 'an iPhone 15 Pro or later', rules: {qwen: 'block'}},
+  iphone_old: {label: 'an older iPhone', rules: {klein4b: 'warn', zimage: 'warn', qwen: 'block'}},
+  ipad_m1: {label: 'an M1-or-later iPad', rules: {qwen: 'block'}},
+  ipad_16: {label: 'a 16 GB iPad Pro', rules: {}},
+  mac: {label: 'a Mac', rules: {}},
+};
+const device = () => DEVICES[$('#device').value] ? $('#device').value : 'unsure';
+function deviceCheck(m) {
+  const d = device(), r = DEVICES[d].rules[m];
+  if (r === 'block') return {block: d.startsWith('iphone') ? "Won't run in Draw Things on an iPhone (it needs about 11 GB)." : "Won't run in Draw Things on an 8 GB iPad (it needs about 11 GB)."};
+  if (r === 'warn') return {warn: "May be too big to run on this iPhone itself. Turn on Draw Things' cloud offload to use it."};
+  return {};
+}
+function modelState(m) {
+  const spec = MODELS[m], a = (spec.available || {})[preset];
+  if (!a) return null;  // not offered at this level
+  const dc = deviceCheck(m);
+  return {ok: a.ok && !dc.block, gpuReason: a.ok ? '' : a.reason, devBlock: dc.block || '', warn: dc.warn || ''};
+}
+function offered() { return MODELS ? Object.keys(MODELS).filter(m => modelState(m)).sort((a, b) => MODELS[b].rank - MODELS[a].rank) : []; }
+function recommended() { return offered().find(m => modelState(m).ok) || 'klein4b'; }
+function currentModel() {
+  if (!MODELS || preset === 'quick') return 'klein4b';
+  const p = picked[preset];
+  return p && modelState(p) && modelState(p).ok ? p : recommended();
+}
+function renderModels() {
+  const box = $('#models'); if (!box) return;
+  if (!MODELS) { box.innerHTML = ''; $('#whyModel').textContent = ''; return; }
+  const cur = currentModel(), rec = recommended(), list = offered();
+  $('#modelHint').textContent = preset === 'quick' ? '— Quick test always uses Klein 4B' : '— the most realistic one that fits is picked for you';
+  box.innerHTML = list.map(m => {
+    const sp = MODELS[m], st = modelState(m), e = est && est.models && est.models[m] && est.models[m][preset];
+    const status = st.gpuReason ? `<div class="mx">🖥️ ${esc(st.gpuReason)}</div>` : st.devBlock ? `<div class="mx">📱 ${esc(st.devBlock)} <span class="hint">(Pick "Not sure" above to see it anyway.)</span></div>` : st.warn ? `<div class="mw">⚠️ ${esc(st.warn)}</div>` : '';
+    return `<button class="mcard ${m === cur ? 'on' : ''}" data-m="${m}" ${st.ok ? '' : 'disabled'}>
+      <div class="mt"><b>${esc(sp.label)}${m === rec && preset !== 'quick' ? ' · recommended' : ''}</b><span class="hint">${e ? 'about ' + fmt(e.seconds) : ''}</span></div>
+      <div class="md">${esc(sp.blurb)}</div>
+      <div class="md">${esc(sp.license)} · ${esc(sp.maker)} · first use downloads ~${sp.download_gb} GB</div>
+      <div class="md">📱 ${esc(sp.dt_note)}${sp.dt_send ? '' : ' Import the file into Draw Things yourself (one-tap Send is Klein 4B only).'}</div>${status}</button>`;
+  }).join('');
+  $('#whyModel').innerHTML = preset === 'quick' ? '' : whyLine(cur, rec);
+}
+function whyLine(cur, rec) {
+  const sp = MODELS[cur], gpu = GPU && GPU.name ? GPU.name.replace('NVIDIA GeForce ', '') : 'this PC';
+  const st = modelState(cur);
+  const dev = device() === 'unsure' ? '' : st.warn ? `. On ${DEVICES[device()].label} you may need Draw Things' cloud offload to use it` : ` and runs in Draw Things on ${DEVICES[device()].label}`;
+  if (cur !== rec) return `You picked ${esc(sp.short)}. Recommended: ${esc(MODELS[rec].short)}. <button class="linkbtn" onclick="pickModel(null)">Use the recommended one</button>`;
+  const skipped = offered().filter(m => MODELS[m].rank > MODELS[cur].rank).map(m => { const st = modelState(m); return `${MODELS[m].short} ${st.gpuReason ? 'needs a bigger GPU to train' : "won't run on your device"}`; });
+  return `<b>Why ${esc(sp.short)}:</b> it's the most realistic model that ${esc(gpu)} can train${dev}.${skipped.length ? ' (' + esc(skipped.join('; ')) + '.)' : ''}`;
+}
+function pickModel(m) { if (preset !== 'quick') picked[preset] = m; renderModels(); updateAutoSteps(); updateEstimates(); }
+$('#models').onclick = e => { const b = e.target.closest('[data-m]'); if (b && !b.disabled) pickModel(b.dataset.m === recommended() ? null : b.dataset.m); };
+$('#device').value = localStorage.getItem('fetch.device') || 'unsure';
+$('#device').onchange = () => { localStorage.setItem('fetch.device', $('#device').value); renderModels(); updateEstimates(); };
+async function loadModels() { try { const r = await api('/api/models'); MODELS = r.models; GPU = r.gpu; renderModels(); updateEstimates(); } catch {} }
 $('#kind').onchange = () => { const style = $('#kind').value === 'style'; $('#autocrop').checked = !style; refreshFlags(); };
 $('#name').oninput = e => { e.target.value = e.target.value.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, ''); };
 $('#steps').oninput = () => updateEstimates();
@@ -272,13 +354,22 @@ function updateEstimates() {
     const n = kept().length || 20;
     try {
       est = await api(`/api/estimate?photos=${n}&steps=${parseInt($('#steps').value) || 0}&bg_remove=${$('#bgremove').checked}`);
-      for (const k of ['quick','good','best']) $('#t-' + k).textContent = 'about ' + fmt(est[k].seconds);
+      for (const k of ['quick','good','best']) {
+        const m = k === preset ? currentModel() : (k === 'quick' ? 'klein4b' : null);
+        const e = m && est.models && est.models[m] && est.models[m][k] ? est.models[m][k] : est[k];
+        $('#t-' + k).textContent = 'about ' + fmt(e.seconds);
+      }
+      renderModels();
       updateAutoSteps();
       $('#go').textContent = est.busy ? `Add to the line (starts in about ${fmt(est.wait_s)})` : 'Start training';
     } catch {}
   }, 250);
 }
-function updateAutoSteps() { if (est) $('#autoSteps').textContent = est[preset].steps + ' steps for ' + (kept().length || 20) + ' photos'; }
+function updateAutoSteps() {
+  if (!est) return;
+  const m = currentModel(), e = est.models && est.models[m] && est.models[m][preset] ? est.models[m][preset] : est[preset];
+  $('#autoSteps').textContent = e.steps + ' steps for ' + (kept().length || 20) + ' photos' + (m === 'klein4b' ? '' : ' on ' + MODELS[m].short);
+}
 
 /* ---------------- notification settings ---------------- */
 async function loadSettings() { try { $('#webhook').value = (await api('/api/settings')).webhook_url || ''; } catch {} }
@@ -298,7 +389,7 @@ $('#go').onclick = async () => {
   const k = kept(), tags = {}; k.forEach(p => { if ((p.tags || '').trim()) tags[p.pid] = p.tags.trim(); });
   $('#go').disabled = true; $('#go').textContent = 'Starting…';
   try {
-    const r = await postJSON('/api/jobs', {draft, name, kind: $('#kind').value, preset, keep: k.map(p => p.pid), tags,
+    const r = await postJSON('/api/jobs', {draft, name, kind: $('#kind').value, preset, model: currentModel(), keep: k.map(p => p.pid), tags,
       autocrop: $('#autocrop').checked, bg_remove: $('#bgremove').checked, steps: parseInt($('#steps').value) || null});
     draft = null; photos = []; $('#name').value = ''; $('#againNote').style.display = 'none'; renderTiles();
     location.hash = 'job=' + r.id;
@@ -343,7 +434,7 @@ async function again(id) {
     const r = await api(`/api/jobs/${id}/again`, {method:'POST'});
     draft = r.draft.id; photos = r.draft.photos.map(p => ({...p}));
     const s = r.settings;
-    $('#name').value = s.name; $('#kind').value = s.kind; setPreset(s.preset);
+    $('#name').value = s.name; $('#kind').value = s.kind; if (s.preset !== 'quick' && s.model) picked[s.preset] = s.model; setPreset(s.preset);
     $('#autocrop').checked = s.autocrop; $('#bgremove').checked = s.bg_remove; $('#steps').value = s.steps || '';
     $('#againNote').textContent = `Loaded ${photos.length} photos, tags and settings from ${s.name}. Change anything you like, then press Start. Keep the same name to replace it, or pick a new one to keep both.`;
     $('#againNote').style.display = '';
@@ -353,6 +444,7 @@ async function again(id) {
 
 function dtBlock(j) {
   const dt = j.drawthings || {}, id = j.id, n = esc(j.name);
+  if (dt.unsupported) return `<p>Tap <b>Download</b>, then <b>Save to Files</b>. In Draw Things: model menu → <b>LoRA</b> → <b>Manage</b> → <b>Import</b>, and pick the file.</p><p class="hint">One-tap "Send to Draw Things" only works for Klein 4B LoRAs, because the Draw Things server on this PC only has Klein 4B.</p>`;
   if (!dt.addon) return `<p>Tap <b>Download</b>, then <b>Save to Files</b>. In Draw Things: model menu → <b>LoRA</b> → <b>Manage</b> → <b>Import</b>, and pick the file.</p>`;
   if (dt.state === 'converting') return `<p>⏳ Getting ${n} ready for Draw Things…</p>`;
   if (dt.state === 'restarting') return `<p>⏳ Restarting the Draw Things server (about 20 seconds)…</p>`;
@@ -371,7 +463,7 @@ async function showJob(id) {
   const vpics = v => v.samples.map(s => `<img loading="lazy" src="${s.url}">`).join('');
   let html = `<p><a class="back" href="#">← All trainings</a></p>
   <div class="card"><h2>${esc(j.name)} <span class="pill ${j.status}">${STATUS[j.status]||j.status}</span></h2>
-    <div class="row"><span>${j.photos} photos${j.tagged ? ' (' + j.tagged + ' tagged)' : ''} · ${j.preset_label} · ${j.steps || p.total} steps</span><span>${p.phase ? esc(p.phase) : ''}</span></div>
+    <div class="row"><span>${j.photos} photos${j.tagged ? ' (' + j.tagged + ' tagged)' : ''} · ${j.preset_label} · ${esc(j.model_label || 'FLUX.2 Klein 4B')} · ${j.steps || p.total} steps</span><span>${p.phase ? esc(p.phase) : ''}</span></div>
     <div class="bar"><div style="width:${done?100:pct}%"></div></div>
     <div class="row"><span>Step ${p.step} of ${p.total} (${done?100:pct}%)</span><span>${running && p.eta_s != null ? 'About ' + fmt(p.eta_s) + ' left' + (p.s_per_step ? ' (measured on your GPU)' : '') : ''}</span></div>
     ${j.status === 'queued' && j.queue ? `<p class="hint">#${j.queue.position} in line. Starts in about ${fmt(j.queue.starts_in_s)} and takes about ${fmt(j.queue.est_s)}.</p>` : ''}
@@ -393,10 +485,10 @@ async function showJob(id) {
       <h3>2. Put it in Draw Things</h3>${dtBlock(j)}
       <p><a class="btn" href="/api/jobs/${id}/files/lora/${esc(j.name)}.safetensors">⬇︎ Download ${esc(j.name)}.safetensors</a></p>
       <h3>3. Make pictures</h3>
-      <ol><li>In <b>Draw Things</b>, choose <b>FLUX.2 [klein] 4B</b> as the model.</li>
+      <ol><li>In <b>Draw Things</b>, choose <b>${esc(j.dt_model || 'FLUX.2 [klein] 4B')}</b> as the model.${j.model === 'zimage' ? ' <span class="hint">(It may also work with Z Image Turbo, but that is untested.)</span>' : ''}</li>
       <li>Under <b>LoRA</b>, pick <b>${esc(j.name)}</b> and set it to about 100%.</li>
       <li>Type <b>${esc(j.name)}</b> in your prompt, e.g. <i>"a photo of ${esc(j.name)} as an astronaut"</i>${j.tagged ? '. You can also use your tags, like <i>"…holding a frisbee"</i>' : ''}.</li></ol>
-      <p class="hint">With Server Offload on, Draw Things renders on your PC's GPU.</p></div>`;
+      <p class="hint">${j.model && j.model !== 'klein4b' ? "This model isn't on your PC's Draw Things server, so it runs on the device itself (or with Draw Things' cloud offload)." : "With Server Offload on, Draw Things renders on your PC's GPU."}</p></div>`;
     if (j.before.length && chosen && chosen.samples.length) {
       html += `<div class="card"><h2>Before and after</h2><p class="hint">Same picture request, without and with ${esc(j.name)} (version ${chosen.number}).</p>
         ${j.before.map((b, i) => chosen.samples[i] ? `<div class="ba"><figure><a href="${b.url}" target="_blank"><img loading="lazy" src="${b.url}"></a><figcaption>Without</figcaption></figure><figure><a href="${chosen.samples[i].url}" target="_blank"><img loading="lazy" src="${chosen.samples[i].url}"></a><figcaption>With ${esc(j.name)}</figcaption></figure></div>` : '').join('')}</div>`;
@@ -421,7 +513,7 @@ function route() {
   if (m) { showJob(m[1]); timer = setInterval(() => { if (!busy()) showJob(m[1]); }, 8000); }
   else { showHome(); timer = setInterval(() => { if (!busy()) showHome(); }, 15000); }
 }
-window.onhashchange = route; loadSettings(); updateEstimates(); route();
+window.onhashchange = route; loadSettings(); loadModels(); updateEstimates(); route();
 </script>
 </body>
 </html>
