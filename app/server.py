@@ -233,7 +233,7 @@ def build_config(d: Path, s: dict) -> Path:
                     "device": "cuda",
                     "trigger_word": trigger,
                     "performance_log_every": 10,
-                    "network": {"type": "lora", "linear": 32, "linear_alpha": 32},
+                    "network": mm.network_block(model),
                     "save": {
                         "dtype": "bf16",
                         "save_every": every,  # ~5 versions to pick from on the job page

@@ -1,12 +1,12 @@
 """The model matrix: which base model a LoRA is trained on.
 
     Quick test  -> FLUX.2 Klein 4B only (smallest, fastest).
-    Good        -> Klein 4B or Z-Image (6B).
-    Best        -> Klein 4B, Z-Image or Qwen-Image (20B, needs a 24 GB+ GPU to train).
+    Good        -> Klein 4B, Z-Image (6B) or MOSS-Image (5B).
+    Best        -> Klein 4B, Z-Image, MOSS-Image or Qwen-Image-2512 (20B, needs a 24 GB+ GPU to train).
 
 Everything here is plain data plus small helpers; server.py uses it to plan steps,
 estimate time, build the ai-toolkit config and decide what Draw Things can do.
-All three models are Apache 2.0 and ungated on Hugging Face (checked Nov 2026).
+All four models are Apache 2.0 and ungated on Hugging Face (checked Nov 17, 2026).
 """
 from __future__ import annotations
 
@@ -69,11 +69,36 @@ MODELS: Dict[str, dict] = {
         "dt_note": "Works in Draw Things on iPhone 15 Pro or later and any M1-or-later iPad; "
                    "older devices can use Draw Things' cloud offload.",
     },
+    "moss": {
+        "label": "MOSS-Image 5B",
+        "short": "MOSS-Image",
+        "rank": 3,  # above Z-Image: newest, 9B text encoder, strong character likeness in community reports
+        "repo": os.environ.get("DRAGON_MOSS_MODEL", "OpenMOSS-Team/MOSS-Image-Base"),  # train on Base, use on SFT
+        "arch": "moss_image",
+        "params": "5B",
+        "license": "Apache 2.0",
+        "maker": "OpenMOSS team, Fudan University (China)",
+        "download_gb": 27,
+        "min_vram_gb": 11.5,  # 8-bit ConvRot + layer offloading (community: 12 GB RTX 4070 works)
+        "presets": {
+            # community: character LoRAs typically need 2,000-3,000 steps on MOSS-Image Base
+            "good": {"steps": 2000, "per_photo": 60, "min": 1500, "max": 2500, "res": [512, 768, 1024], "s_per_step": 3.5},
+            "best": {"steps": 3500, "per_photo": 100, "min": 3000, "max": 4000, "res": [512, 768, 1024], "s_per_step": 3.5},
+        },
+        "load_s": 300, "sample_round_s": 120,
+        "sample": {"guidance_scale": 3, "sample_steps": 30},  # ai-toolkit's MOSS-Image defaults
+        "timestep_type": "shift",  # ai-toolkit's MOSS-Image default
+        "blurb": "Newest model; early testers report strong likeness. Heavier to use (big text encoder) and about 1.7x slower than Klein.",
+        "dt_model": "MOSS Image SFT",
+        "dt_send": False,
+        "dt_note": "Runs in Draw Things on iPad (confirmed) and Mac. Its 9B text encoder makes it heavier than "
+                   "Z-Image; iPhone is untested, so use Draw Things' cloud offload there if it struggles.",
+    },
     "qwen": {
-        "label": "Qwen-Image 20B",
+        "label": "Qwen-Image-2512 20B",
         "short": "Qwen-Image",
-        "rank": 3,
-        "repo": os.environ.get("DRAGON_QWEN_MODEL", "Qwen/Qwen-Image"),
+        "rank": 4,
+        "repo": os.environ.get("DRAGON_QWEN_MODEL", "Qwen/Qwen-Image-2512"),
         "arch": "qwen_image",
         "params": "20B",
         "license": "Apache 2.0",
@@ -81,12 +106,14 @@ MODELS: Dict[str, dict] = {
         "download_gb": 58,
         "min_vram_gb": 23,  # a "24 GB" card reports ~23.6 GB; 3-bit + accuracy recovery adapter
         "presets": {
-            "best": {"steps": 3000, "per_photo": 60, "min": 2000, "max": 4000, "res": [512, 768, 1024], "s_per_step": 4.0},
+            # community guidance for character LoRAs: ~80-100 repeats per photo, sigmoid timesteps, rank 32
+            "best": {"steps": 3000, "per_photo": 90, "min": 2000, "max": 4500, "res": [512, 768, 1024], "s_per_step": 4.0},
         },
         "load_s": 420, "sample_round_s": 150,
         "sample": {"guidance_scale": 3, "sample_steps": 25},  # ai-toolkit's own Qwen-Image example
+        "timestep_type": "sigmoid",
         "blurb": "The most realistic and by far the slowest. Needs a big GPU to train (24 GB+, 48 GB is comfortable).",
-        "dt_model": "Qwen Image 1.0",
+        "dt_model": "Qwen Image 2512",
         "dt_send": False,
         "dt_note": "Needs about 11 GB in Draw Things: a Mac or a 16 GB iPad Pro (1 TB/2 TB models); not iPhone.",
     },
@@ -95,7 +122,7 @@ MODELS: Dict[str, dict] = {
 PRESET_LABELS = {"quick": "Quick test", "good": "Good", "best": "Best"}
 
 # Qwen-Image on 24-39 GB: 3-bit weights + Ostris' accuracy recovery adapter (ai-toolkit's own 24 GB recipe).
-QWEN_ARA = "uint3|ostris/accuracy_recovery_adapters/qwen_image_torchao_uint3.safetensors"
+QWEN_ARA = "uint3|ostris/accuracy_recovery_adapters/qwen_image_2512_torchao_uint3.safetensors"
 QWEN_FULL_VRAM_GB = 40
 
 
@@ -164,6 +191,13 @@ def model_block(model: str, gpu_total_gb: Optional[float], low_vram_env: bool) -
     elif model == "zimage":
         # quantize on the CPU first so loading never spikes past 16 GB
         block["low_vram"] = low_vram_env or (total is not None and total < 20)
+    elif model == "moss":
+        # Ostris' MOSS-Image preset: 8-bit ConvRot weights, skip block 22 on the CFG negative branch
+        block.update(qtype="convrot8", qtype_te="convrot8", model_kwargs={"uncond_skip_layers": [22]})
+        if total is None or total < 20:
+            # keep the 9B text encoder in system RAM; on <15 GB cards also half the transformer
+            block.update(low_vram=True, layer_offloading=True, layer_offloading_text_encoder_percent=1.0,
+                         layer_offloading_transformer_percent=0.5 if (total or 0) < 15 else 0.0)
     elif model == "qwen":
         if total is None or total < QWEN_FULL_VRAM_GB:
             block["qtype"] = QWEN_ARA
@@ -174,11 +208,24 @@ def model_block(model: str, gpu_total_gb: Optional[float], low_vram_env: bool) -
 def train_overrides(model: str, gpu_total_gb: Optional[float]) -> dict:
     """Per-model changes to the `train:` section."""
     total = vram_gb(gpu_total_gb)
+    out = {}
+    if MODELS[model].get("timestep_type"):
+        out["timestep_type"] = MODELS[model]["timestep_type"]
     if model == "qwen" and (total is None or total < QWEN_FULL_VRAM_GB):
         # ai-toolkit: "caching text embeddings is required for 24GB". Our captions already
         # contain the trigger word, so the trigger still works with cached embeddings.
-        return {"cache_text_embeddings": True}
-    return {}
+        out["cache_text_embeddings"] = True
+    if model == "moss":
+        # cache the 9B text encoder's output once, then free it (as in the 12 GB community recipe)
+        out["cache_text_embeddings"] = True
+    return out
+
+
+def network_block(model: str) -> dict:
+    net = {"type": "lora", "linear": 32, "linear_alpha": 32}
+    if model == "moss":  # Ostris' preset: keep the LoRA off the block the CFG negative branch skips
+        net["network_kwargs"] = {"ignore_if_contains": ["layers.22."]}
+    return net
 
 
 def resolutions(model: str, preset: str, gpu_total_gb: Optional[float]) -> List[int]:

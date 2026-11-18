@@ -279,8 +279,8 @@ function setPreset(p) { preset = p; document.querySelectorAll('#presets button')
 // Draw Things device notes (Draw Things posts, Dec 2025: Z-Image ~4 GiB at 6-bit, Qwen-Image ~11 GiB; 8 GB is the practical floor).
 const DEVICES = {
   unsure: {label: 'your device', rules: {}},
-  iphone_pro: {label: 'an iPhone 15 Pro or later', rules: {qwen: 'block'}},
-  iphone_old: {label: 'an older iPhone', rules: {klein4b: 'warn', zimage: 'warn', qwen: 'block'}},
+  iphone_pro: {label: 'an iPhone 15 Pro or later', rules: {moss: 'warn', qwen: 'block'}},
+  iphone_old: {label: 'an older iPhone', rules: {klein4b: 'warn', zimage: 'warn', moss: 'warn', qwen: 'block'}},
   ipad_m1: {label: 'an M1-or-later iPad', rules: {qwen: 'block'}},
   ipad_16: {label: 'a 16 GB iPad Pro', rules: {}},
   mac: {label: 'a Mac', rules: {}},
@@ -289,7 +289,7 @@ const device = () => DEVICES[$('#device').value] ? $('#device').value : 'unsure'
 function deviceCheck(m) {
   const d = device(), r = DEVICES[d].rules[m];
   if (r === 'block') return {block: d.startsWith('iphone') ? "Won't run in Draw Things on an iPhone (it needs about 11 GB)." : "Won't run in Draw Things on an 8 GB iPad (it needs about 11 GB)."};
-  if (r === 'warn') return {warn: "May be too big to run on this iPhone itself. Turn on Draw Things' cloud offload to use it."};
+  if (r === 'warn') return {warn: m === 'moss' && d === 'iphone_pro' ? "Untested on iPhone. If it struggles, turn on Draw Things' cloud offload." : "May be too big to run on this iPhone itself. Turn on Draw Things' cloud offload to use it."};
   return {};
 }
 function modelState(m) {
@@ -485,7 +485,7 @@ async function showJob(id) {
       <h3>2. Put it in Draw Things</h3>${dtBlock(j)}
       <p><a class="btn" href="/api/jobs/${id}/files/lora/${esc(j.name)}.safetensors">⬇︎ Download ${esc(j.name)}.safetensors</a></p>
       <h3>3. Make pictures</h3>
-      <ol><li>In <b>Draw Things</b>, choose <b>${esc(j.dt_model || 'FLUX.2 [klein] 4B')}</b> as the model.${j.model === 'zimage' ? ' <span class="hint">(It may also work with Z Image Turbo, but that is untested.)</span>' : ''}</li>
+      <ol><li>In <b>Draw Things</b>, choose <b>${esc(j.dt_model || 'FLUX.2 [klein] 4B')}</b> as the model.${j.model === 'zimage' ? ' <span class="hint">(It may also work with Z Image Turbo, but that is untested.)</span>' : j.model === 'moss' ? ' <span class="hint">(It was trained on MOSS Image Base; testers report Base-trained LoRAs work on SFT. Base works too.)</span>' : ''}</li>
       <li>Under <b>LoRA</b>, pick <b>${esc(j.name)}</b> and set it to about 100%.</li>
       <li>Type <b>${esc(j.name)}</b> in your prompt, e.g. <i>"a photo of ${esc(j.name)} as an astronaut"</i>${j.tagged ? '. You can also use your tags, like <i>"…holding a frisbee"</i>' : ''}.</li></ol>
       <p class="hint">${j.model && j.model !== 'klein4b' ? "This model isn't on your PC's Draw Things server, so it runs on the device itself (or with Draw Things' cloud offload)." : "With Server Offload on, Draw Things renders on your PC's GPU."}</p></div>`;

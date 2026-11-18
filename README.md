@@ -51,7 +51,7 @@ Think of it as a small restaurant:
 - **The kitchen (the trainer)** is [AI Toolkit](https://github.com/ostris/ai-toolkit) by Ostris.
   The server writes a recipe (`config.yaml`) and AI Toolkit cooks: it trains the LoRA on the
   [FLUX.2 [klein] base 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B) image model
-  (or, for *Good* and *Best*, the bigger Z-Image or Qwen-Image; see [docs/MODELS.md](docs/MODELS.md))
+  (or, for *Good* and *Best*, the bigger Z-Image, MOSS-Image or Qwen-Image-2512; see [docs/MODELS.md](docs/MODELS.md))
   on your GPU, saving a version and drawing three test pictures every so often.
 - **The page checks back** every few seconds, reads AI Toolkit's progress from its log, and shows
   you the step count, the time left and the newest test pictures.
@@ -77,7 +77,8 @@ AMD, Intel and Apple Silicon GPUs are **not** supported (the trainer needs CUDA)
 Rough times on an RTX 5070 Ti: a *Quick test* (300 steps) takes about 12–15 minutes end to end;
 *Good* about 30 minutes to 1¼ hours; *Best* about 1¼ to 3½ hours, depending on how many photos you pick.
 The very first run also downloads the base model once (~16 GB). The bigger models are optional: Z-Image
-(~21 GB download, about 1.5x slower) and Qwen-Image (~58 GB, needs a 24 GB+ GPU). See
+(~21 GB download, about 1.5x slower), MOSS-Image (~27 GB, about 1.7x slower) and Qwen-Image-2512
+(~58 GB, needs a 24 GB+ GPU). See
 [docs/MODELS.md](docs/MODELS.md).
 
 ## Quick start
@@ -122,8 +123,8 @@ is asked for the new PIN. Logs: `docker logs dragon-trainer`, or the *Technical 
 5. **When it's done**, pick your favorite version, then **Download** it or tap **Send to Draw Things**.
 
 **Using it in Draw Things:** download the `.safetensors` file, then in Draw Things open the model menu →
-**LoRA** → **Manage** → **Import**. Choose **FLUX.2 [klein] 4B** as the model (**Z Image Base 1.0** or
-**Qwen Image 1.0** if you trained on those), switch your LoRA on, and
+**LoRA** → **Manage** → **Import**. Choose **FLUX.2 [klein] 4B** as the model (**Z Image Base 1.0**,
+**MOSS Image SFT** or **Qwen Image 2512** if you trained on those), switch your LoRA on, and
 use your word in the prompt. The optional `converter/` add-on can do this for a Draw Things gRPC server
 automatically; see [converter/README.md](converter/README.md).
 
@@ -161,7 +162,8 @@ repository and keep their own licenses:
 |---|---|---|---|
 | [FLUX.2 [klein] base 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B) by Black Forest Labs | The image model the LoRA is trained on (includes its Qwen3-4B text encoder and VAE) | Apache 2.0 | Not gated. The model card says outputs can be used commercially under Apache 2.0, and lists out-of-scope uses. The **9B** klein variants use a non-commercial license and are **not** used here. |
 | [Z-Image](https://huggingface.co/Tongyi-MAI/Z-Image) (Base) by Alibaba Tongyi Lab | Optional bigger model for *Good* and *Best* | Apache 2.0 | Not gated. Downloaded only if you pick it (~21 GB). |
-| [Qwen-Image](https://huggingface.co/Qwen/Qwen-Image) by Alibaba Qwen team | Optional biggest model for *Best* (24 GB+ GPU) | Apache 2.0 | Not gated. Downloaded only if you pick it (~58 GB). On 24 GB cards also uses Ostris' [accuracy recovery adapter](https://huggingface.co/ostris/accuracy_recovery_adapters). |
+| [MOSS-Image](https://huggingface.co/OpenMOSS-Team/MOSS-Image-Base) (Base) by the OpenMOSS team (Fudan University) | Optional model for *Good* and *Best* | Apache 2.0 | Not gated. Downloaded only if you pick it (~27 GB, includes its Qwen3.5-9B text encoder). |
+| [Qwen-Image-2512](https://huggingface.co/Qwen/Qwen-Image-2512) by Alibaba Qwen team | Optional biggest model for *Best* (24 GB+ GPU) | Apache 2.0 | Not gated. Downloaded only if you pick it (~58 GB). On 24 GB cards also uses Ostris' [accuracy recovery adapter](https://huggingface.co/ostris/accuracy_recovery_adapters). |
 | [AI Toolkit](https://github.com/ostris/ai-toolkit) by Ostris (Docker image `ostris/aitoolkit:0.13.42`) | The training engine | MIT | The Docker image also bundles PyTorch, CUDA and other packages under their own licenses. |
 | [BiRefNet_lite](https://huggingface.co/ZhengPeng7/BiRefNet_lite) by ZhengPeng7 | Optional background removal | MIT | Pinned revision, downloaded on first use (~180 MB). Loaded with `trust_remote_code`, so the pin matters. |
 | [torchvision](https://github.com/pytorch/vision) Faster R-CNN MobileNetV3-Large FPN | Photo check and auto-crop (finds the dog/person) | Code: BSD-3-Clause | The weights are trained on the [COCO](https://cocodataset.org) dataset. torchvision notes that pre-trained weights "may have their own licenses or terms" from their training data (COCO annotations are CC BY 4.0; the images come from Flickr under their own terms). |

@@ -1,6 +1,6 @@
-# Qwen-Image LoRA on a rented 48 GB GPU (e.g. RunPod A6000 / L40S), made by Fetch LoRA's own
-# config builder (Best, 20 photos). See docs/MODELS.md "Qwen-Image on a rented GPU". Untested on RunPod.
-# Change: name / trigger_word / prompts (biscuit_dog -> your word), steps (photos x 60, 2000-4000),
+# Qwen-Image-2512 LoRA on a rented 48 GB GPU (e.g. RunPod A6000 / L40S), made by Fetch LoRA's own
+# config builder (Best, 20 photos). See docs/MODELS.md "Qwen-Image-2512 on a rented GPU". Untested on RunPod.
+# Change: name / trigger_word / prompts (biscuit_dog -> your word), steps (photos x 90, 2000-4500),
 # and the two /workspace paths if you put things elsewhere.
 job: extension
 config:
@@ -39,7 +39,7 @@ config:
       gradient_checkpointing: true
       noise_scheduler: flowmatch
       optimizer: adamw8bit
-      timestep_type: weighted
+      timestep_type: sigmoid
       content_or_style: balanced
       optimizer_params:
         weight_decay: 0.0001
@@ -49,7 +49,7 @@ config:
       dtype: bf16
       skip_first_sample: false
     model:
-      name_or_path: Qwen/Qwen-Image
+      name_or_path: Qwen/Qwen-Image-2512
       arch: qwen_image
       quantize: true
       qtype: qfloat8
