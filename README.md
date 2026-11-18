@@ -131,7 +131,7 @@ finishes or stops, Fetch LoRA sends it a JSON POST like
 
 - **Ask before you train on a person.** Anyone with the file can make pictures of that face.
 - **Keep LoRAs of real people private**, especially children. Don't upload them to public sites.
-- Pets, art you made yourself and objects you own are perfect for learning.
+- Pets, art you made yourself, and objects you own are perfect for learning.
 - Follow the base model's usage rules (see the FLUX.2 [klein] model card's *Out-of-Scope Use* section).
 
 ## Licenses
