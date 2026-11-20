@@ -144,6 +144,14 @@ def read_settings() -> dict:
         return {}
 
 
+def write_settings(s: dict) -> None:
+    """Write to a temp file, then swap it in, so a reader never sees a half-written file
+    (read_settings() would then return {} and the webhook address would look gone)."""
+    tmp = SETTINGS_FILE.with_name(SETTINGS_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(s, indent=2))
+    tmp.replace(SETTINGS_FILE)
+
+
 # --------------------------------------------------------------------------- #
 # Planning: steps, checkpoints, time estimates
 # --------------------------------------------------------------------------- #
@@ -178,7 +186,7 @@ def remember_speed(preset: str, sps: float, model: str = mm.DEFAULT_MODEL) -> No
         with lock:
             st = read_settings()
             st.setdefault("speed", {})[mm.speed_key(model, preset)] = round(sps, 3)
-            SETTINGS_FILE.write_text(json.dumps(st, indent=2))
+            write_settings(st)
     except Exception:
         pass
 
@@ -1345,9 +1353,10 @@ def save_settings(body: dict = Body(...)) -> dict:
     url = str(body.get("webhook_url", "")).strip()
     if url and not re.match(r"^https?://\S+$", url):
         raise HTTPException(400, "That doesn't look like a web address (it should start with http:// or https://).")
-    s = read_settings()
-    s["webhook_url"] = url
-    SETTINGS_FILE.write_text(json.dumps(s, indent=2))
+    with lock:  # the trainer also writes this file (learned GPU speeds); don't lose either change
+        s = read_settings()
+        s["webhook_url"] = url
+        write_settings(s)
     return {"ok": True}
 
 

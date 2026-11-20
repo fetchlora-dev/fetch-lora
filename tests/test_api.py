@@ -132,3 +132,10 @@ def test_non_ascii_pin_is_just_wrong():
     r = TestClient(server.app).post("/api/login", data={"pin": "é1234"})
     assert r.status_code == 401
     server.failures.clear()
+
+
+def test_saving_the_webhook_keeps_learned_speeds(client):
+    server.remember_speed("good", 1.234)
+    assert client.post("/api/settings", json={"webhook_url": "http://example.invalid/hook"}).status_code == 200
+    s = server.read_settings()
+    assert s["webhook_url"] == "http://example.invalid/hook" and s["speed"]["good"] == 1.234
