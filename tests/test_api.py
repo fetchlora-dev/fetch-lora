@@ -93,3 +93,10 @@ def test_oversized_upload_is_refused_before_it_is_read(client):
     big = b"x" * ((server.MAX_PHOTO_MB + 2) * 1024 * 1024)
     r = client.post(f"/api/drafts/{draft}/photos", files={"photo": ("huge.jpg", big, "image/jpeg")})
     assert r.status_code == 413
+
+
+def test_empty_pin_makes_a_random_one():
+    pin = server.choose_pin("")
+    assert len(pin) == 6 and pin.isdigit()
+    assert server.choose_pin("   ") == pin          # the same one every start, until you set your own
+    assert server.choose_pin("8642") == "8642"

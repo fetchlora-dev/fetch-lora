@@ -109,8 +109,9 @@ The very first run also downloads the base model once (~16 GB). The bigger model
    Share → **Add to Home Screen** for an app icon. (Same Wi-Fi: use the PC's local IP. Away from home:
    use a private VPN such as Tailscale on both devices.)
 
-To change the PIN later, edit `TRAINER_PIN=` in `.env` and run `docker compose up -d`; every device
-is asked for the new PIN. Logs: `docker logs dragon-trainer`, or the *Technical log* on each training page.
+If you left `TRAINER_PIN=` empty, Fetch LoRA made a random 6-digit PIN for you; find it with
+`docker logs dragon-trainer`. To change the PIN later, edit `TRAINER_PIN=` in `.env` and run
+`docker compose up -d`; every device is asked for the new PIN. Logs: `docker logs dragon-trainer`, or the *Technical log* on each training page.
 
 ## Your first training
 

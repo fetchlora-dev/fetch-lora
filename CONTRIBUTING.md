@@ -50,9 +50,9 @@ Small, real improvements that are a good size for a first pull request. None of 
    made-up data and no real photos or detector. Cover at least: too small, blurry, near-duplicate,
    "can't spot a dog", and a crop that stays inside the photo.
 
-3. **Warn when the PIN is still the default.** If `TRAINER_PIN` is left at `1234`, Fetch LoRA works
-   but anyone on the network can guess it. Print a clear warning in the server log at startup, and
-   consider a gentle note on the home page, telling the owner how to change it.
+3. **Show a gentle note when the PIN is weak.** The server already prints a warning in its log if
+   `TRAINER_PIN` is `1234`. Add a friendly note on the home page too (for example when the PIN is
+   1234 or shorter than 6 digits), telling the owner how to change it in `.env`.
 
 4. **Move the test-picture prompts into a settings file.** The three prompts used for the test pictures
    are hard-coded in `sample_prompts()`. Let people change them without editing Python, for example from

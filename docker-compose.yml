@@ -14,7 +14,8 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - DRAGON_DELIVER_TO=/deliver
       # PIN asked once per device (remembered by a cookie). Change it in .env, then `docker compose up -d`.
-      - TRAINER_PIN=${TRAINER_PIN:-1234}
+      # Left empty, the trainer makes a random one and prints it in `docker logs dragon-trainer`.
+      - TRAINER_PIN=${TRAINER_PIN:-}
       - TZ=${TZ:-UTC}
     volumes:
       - ${DRAGON_DATA_DIR:-./data}/jobs:/data/jobs          # photos, configs, samples, checkpoints

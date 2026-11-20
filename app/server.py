@@ -787,7 +787,28 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 # PIN gate: every page and API call needs a cookie that proves the PIN was
 # entered once on this device. Change the PIN with TRAINER_PIN in .env.
 # --------------------------------------------------------------------------- #
-PIN = os.environ.get("TRAINER_PIN", "1234").strip()
+def choose_pin(from_env: str) -> str:
+    """The PIN for the page: TRAINER_PIN from .env, or, if that's empty, a random 6-digit PIN
+    made once, kept in data/jobs/.pin and shown in the log (`docker logs dragon-trainer`).
+
+    There used to be a built-in 1234 (and an empty PIN turned the lock off), which anyone on
+    the network could guess.
+    """
+    pin = from_env.strip()
+    if pin:
+        if pin == "1234":
+            print("WARNING: TRAINER_PIN is 1234, which anyone can guess. Pick your own in .env.", flush=True)
+        return pin
+    pin_file = JOBS / ".pin"
+    if not pin_file.exists():
+        pin_file.write_text(f"{secrets.randbelow(1_000_000):06d}")
+    pin = pin_file.read_text().strip()
+    print(f"No TRAINER_PIN in .env, so Fetch LoRA made one: {pin}  (set TRAINER_PIN in .env to choose your own)",
+          flush=True)
+    return pin
+
+
+PIN = choose_pin(os.environ.get("TRAINER_PIN", ""))
 COOKIE = "dragon_auth"
 _secret_file = JOBS / ".auth_secret"
 if not _secret_file.exists():
@@ -817,7 +838,7 @@ async def upload_size_limit(request: Request, call_next):
 
 @app.middleware("http")
 async def pin_gate(request: Request, call_next):
-    if request.url.path in OPEN_PATHS or not PIN:
+    if request.url.path in OPEN_PATHS:
         return await call_next(request)
     if hmac.compare_digest(request.cookies.get(COOKIE, ""), TOKEN):
         return await call_next(request)
