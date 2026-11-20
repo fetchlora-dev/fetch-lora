@@ -9,8 +9,8 @@ small, careful changes are worth more than big ones.
 ## Before you start
 
 1. Read [README.md](README.md), then [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) for the map of the code.
-2. You **don't need a GPU** for most code changes. Much of `app/server.py` and `app/photocheck.py`
-   is plain Python you can read, run and test on any computer. You only need an NVIDIA GPU to run a
+2. You **don't need a GPU** for most code changes. Most of `app/` (for example `training.py`,
+   `photos.py` and `photocheck.py`) is plain Python you can read, run and test on any computer. You only need an NVIDIA GPU to run a
    real training.
 3. Never commit secrets or personal data: no `.env`, no `data/` folder, no photos of real people,
    no IP addresses or hostnames from your own network. `.gitignore` already blocks the usual ones.
@@ -33,7 +33,7 @@ The tests need no GPU, Docker or AI models. From the project folder:
 
 ```
 python -m venv .venv
-.venv/bin/pip install fastapi==0.115.* python-multipart pillow numpy scipy pyyaml httpx pytest
+.venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
 

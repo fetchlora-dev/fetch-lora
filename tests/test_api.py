@@ -1,10 +1,17 @@
 """Tests for the web API, using FastAPI's test client (no GPU, no training is started)."""
 import io
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import auth
+import config
+import jobstore
+import photocheck
+import photos
+import training
 import server
 
 
@@ -12,7 +19,7 @@ import server
 def client():
     # Not used as a context manager, so the startup hook (the training worker) doesn't run.
     c = TestClient(server.app)
-    r = c.post("/api/login", data={"pin": server.PIN})
+    r = c.post("/api/login", data={"pin": auth.PIN})
     assert r.status_code == 200
     return c
 
@@ -49,13 +56,13 @@ def test_same_name_asks_before_replacing(client):
     first = r.json()["id"]
     # still waiting its turn: a second one with that name is refused
     assert start(client, "same_name_dog").status_code == 400
-    d = server.JOBS / first
-    server.update_state(d, status="done")
+    d = config.JOBS / first
+    jobstore.update_state(d, status="done")
     # finished: the page has to ask first (409), then send replace=true
     assert start(client, "same_name_dog").status_code == 409
     r = start(client, "same_name_dog", replace=True)
     assert r.status_code == 200, r.text
-    assert server.read_state(d)["replaced_by"] == r.json()["id"]
+    assert jobstore.read_state(d)["replaced_by"] == r.json()["id"]
     assert client.post(f"/api/jobs/{first}/resume").status_code == 409
 
 
@@ -71,7 +78,7 @@ def test_upload_limits(client, monkeypatch):
     monkeypatch.setattr(server, "MAX_PHOTO_MB", 0)  # every real file is "too big" now
     r = client.post(f"/api/drafts/{draft}/photos", files={"photo": ("big.jpg", jpeg_bytes(1), "image/jpeg")})
     assert r.status_code == 413
-    assert not list((server.DRAFTS / draft).glob("upload_*"))  # the partial file was cleaned up
+    assert not list((config.DRAFTS / draft).glob("upload_*"))  # the partial file was cleaned up
     monkeypatch.setattr(server, "MAX_PHOTO_MB", 50)
     monkeypatch.setattr(server, "MAX_PHOTOS", 1)
     ok = client.post(f"/api/drafts/{draft}/photos", files={"photo": ("a.jpg", jpeg_bytes(2), "image/jpeg")})
@@ -83,9 +90,9 @@ def test_upload_limits(client, monkeypatch):
 def test_huge_pixel_count_is_refused(tmp_path, monkeypatch):
     f = tmp_path / "wide.png"
     Image.new("L", (400, 300)).save(f)
-    monkeypatch.setattr(server, "MAX_PIXELS", 400 * 300 - 1)
+    monkeypatch.setattr(photos, "MAX_PIXELS", 400 * 300 - 1)
     with pytest.raises(ValueError):
-        server.open_photo(f, 1024)
+        photos.open_photo(f, 1024)
 
 
 def test_oversized_upload_is_refused_before_it_is_read(client):
@@ -96,10 +103,10 @@ def test_oversized_upload_is_refused_before_it_is_read(client):
 
 
 def test_empty_pin_makes_a_random_one():
-    pin = server.choose_pin("")
+    pin = auth.choose_pin("")
     assert len(pin) == 6 and pin.isdigit()
-    assert server.choose_pin("   ") == pin          # the same one every start, until you set your own
-    assert server.choose_pin("8642") == "8642"
+    assert auth.choose_pin("   ") == pin          # the same one every start, until you set your own
+    assert auth.choose_pin("8642") == "8642"
 
 
 def test_bad_job_requests_get_a_clear_answer_not_a_crash(client):
@@ -113,31 +120,31 @@ def test_bad_job_requests_get_a_clear_answer_not_a_crash(client):
 
 
 def test_wrong_pins_wait_longer_and_longer(monkeypatch):
-    monkeypatch.setattr(server.time, "sleep", lambda s: None)
-    server.failures.clear()
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    auth.failures.clear()
     c = TestClient(server.app)
     for _ in range(5):
         assert c.post("/api/login", data={"pin": "0000"}).status_code == 401
-    assert c.post("/api/login", data={"pin": server.PIN}).status_code == 429  # locked, even with the right PIN
-    count, until = server.failures["testclient"]
-    assert count == 5 and 50 < until - server.time.time() <= 60
-    server.failures["testclient"] = (7, 0)  # pretend the wait is over, after 7 misses
+    assert c.post("/api/login", data={"pin": auth.PIN}).status_code == 429  # locked, even with the right PIN
+    count, until = auth.failures["testclient"]
+    assert count == 5 and 50 < until - time.time() <= 60
+    auth.failures["testclient"] = (7, 0)  # pretend the wait is over, after 7 misses
     c.post("/api/login", data={"pin": "0000"})
-    assert server.failures["testclient"][1] - server.time.time() > 60 * 2 ** 2  # 8 minutes now
-    server.failures.clear()
+    assert auth.failures["testclient"][1] - time.time() > 60 * 2 ** 2  # 8 minutes now
+    auth.failures.clear()
 
 
 def test_non_ascii_pin_is_just_wrong():
-    server.failures.clear()
+    auth.failures.clear()
     r = TestClient(server.app).post("/api/login", data={"pin": "é1234"})
     assert r.status_code == 401
-    server.failures.clear()
+    auth.failures.clear()
 
 
 def test_saving_the_webhook_keeps_learned_speeds(client):
-    server.remember_speed("good", 1.234)
+    training.remember_speed("good", 1.234)
     assert client.post("/api/settings", json={"webhook_url": "http://example.invalid/hook"}).status_code == 200
-    s = server.read_settings()
+    s = jobstore.read_settings()
     assert s["webhook_url"] == "http://example.invalid/hook" and s["speed"]["good"] == 1.234
 
 
@@ -148,8 +155,32 @@ def test_duplicate_flag_ignores_removed_photos(client):
         data = same if i < 2 else jpeg_bytes(8)
         client.post(f"/api/drafts/{draft}/photos", files={"photo": (f"p{i}.jpg", data, "image/jpeg")})
     codes = lambda view: {p["pid"]: [f["code"] for f in p["flags"]] for p in view["photos"]}
-    if server.photocheck.phash(Image.open(io.BytesIO(same))) is None:
+    if photocheck.phash(Image.open(io.BytesIO(same))) is None:
         pytest.skip("scipy isn't installed here, so there are no duplicate checks")
     assert "duplicate" in codes(client.get(f"/api/drafts/{draft}").json())[1]
     # after removing photo 0, photo 1 is no longer anyone's duplicate
     assert "duplicate" not in codes(client.get(f"/api/drafts/{draft}?keep=1,2").json())[1]
+
+
+def test_every_page_and_api_is_still_there():
+    """server.py was split into modules; this checks no route got lost on the way."""
+    have = {(m, r.path) for r in server.app.routes for m in getattr(r, "methods", None) or ()}
+    want = {("GET", "/"), ("GET", "/login"), ("POST", "/api/login"), ("POST", "/api/logout"),
+            ("GET", "/api/info"), ("GET", "/api/models"), ("GET", "/api/estimate"), ("GET", "/api/gpu"),
+            ("POST", "/api/drafts"), ("POST", "/api/drafts/{draft_id}/photos"), ("GET", "/api/drafts/{draft_id}"),
+            ("GET", "/api/drafts/{draft_id}/thumb/{pid}"), ("GET", "/api/jobs"), ("POST", "/api/jobs"),
+            ("GET", "/api/jobs/{job_id}"), ("GET", "/api/jobs/{job_id}/log"), ("POST", "/api/jobs/{job_id}/cancel"),
+            ("POST", "/api/jobs/{job_id}/resume"), ("POST", "/api/jobs/{job_id}/move"),
+            ("POST", "/api/jobs/{job_id}/choose"), ("POST", "/api/jobs/{job_id}/drawthings"),
+            ("POST", "/api/jobs/{job_id}/again"), ("GET", "/api/jobs/{job_id}/files/{kind}/{fname}"),
+            ("GET", "/api/settings"), ("POST", "/api/settings"), ("POST", "/api/settings/test")}
+    assert want <= have, want - have
+
+
+def test_job_page_and_list_work_after_a_start(client):
+    job = start(client, "page_check_dog").json()["id"]
+    page = client.get(f"/api/jobs/{job}").json()
+    assert page["name"] == "page_check_dog" and page["status"] == "queued" and "origin" not in page
+    assert any(j["id"] == job for j in client.get("/api/jobs").json())
+    assert client.get("/api/estimate?photos=20").status_code == 200
+    client.post(f"/api/jobs/{job}/cancel")

@@ -50,8 +50,9 @@ Think of it as a small restaurant:
 
 - **The menu (the web page)** is `app/static/index.html`. It runs in Safari on your iPad and only
   ever talks to your PC.
-- **The waiter (the web server)** is `app/server.py`, a [FastAPI](https://fastapi.tiangolo.com) app
-  in Python. It takes your photos, checks them, writes down the order and puts it in line.
+- **The waiter (the web server)** is `app/server.py` and a few small modules next to it, a
+  [FastAPI](https://fastapi.tiangolo.com) app in Python. It takes your photos, checks them, writes
+  down the order and puts it in line.
 - **The kitchen (the trainer)** is [AI Toolkit](https://github.com/ostris/ai-toolkit) by Ostris.
   The server writes a recipe (`config.yaml`) and AI Toolkit cooks: it trains the LoRA on the
   [FLUX.2 [klein] base 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B) image model

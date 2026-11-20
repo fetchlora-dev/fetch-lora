@@ -13,7 +13,7 @@ flowchart LR
     end
 
     subgraph Trainer["Docker container: dragon-trainer"]
-        API["server.py<br/>FastAPI web server"]
+        API["server.py + modules<br/>FastAPI web server"]
         PC["photocheck.py<br/>blur, size, duplicates,<br/>dog/person detector"]
         BG["bgremove.py<br/>optional background removal"]
         W["worker thread<br/>one training at a time"]
@@ -51,14 +51,22 @@ flowchart LR
 
 | File | What it does |
 |---|---|
-| `app/server.py` | The heart of the project. A FastAPI web server that serves the page, checks the PIN, stores uploaded photos as "drafts", creates training jobs, runs a background **worker** thread that trains one job at a time, reads AI Toolkit's log to show progress, and delivers the finished LoRA. It's long (about 1,200 lines) but split into labelled sections; skim the `# ----` headings first. |
+| `app/server.py` | Where it all starts: creates the FastAPI web app, adds the PIN lock and the other modules' pages, serves the page, handles photo uploads ("drafts") and settings, and starts the background **worker** thread. Read this first. |
+| `app/config.py` | Settings (all changeable with environment variables), folder paths, upload limits, the kinds of things you can train, and the shared locks. |
+| `app/jobstore.py` | Reads and writes the small JSON files: each training's `job.json` and the app's `.settings.json`. |
+| `app/training.py` | Plans a training: steps (`plan_steps()`), how often to save (`save_every()`), time estimates, the GPU check (`gpu_stats()`), and the AI Toolkit recipe (`build_config()`). |
+| `app/photos.py` | Opens photos safely, turns tags into captions, gets photos ready for training (`prepare_job_images()`), and keeps the photos you picked before pressing Start (drafts). |
+| `app/worker.py` | The waiting line and the worker that trains one job at a time (`run_job()`), plus reading progress, speed and test pictures from AI Toolkit's log. |
+| `app/delivery.py` | After training: the saved versions, copying the chosen one to `data/loras`, the Draw Things add-on's status, and the webhook. |
+| `app/auth.py` | The PIN lock: the PIN, the cookie, the login page and the growing wait after wrong PINs. |
+| `app/jobs_api.py` | The web API for trainings: start, watch, cancel, resume, reorder, pick a version, send to Draw Things, train again, download. |
 | `app/models.py` | The model matrix: which base models can be picked at each level (Klein 4B, Z-Image, MOSS-Image, Qwen-Image-2512), their steps, speeds, download sizes and Draw Things notes, the GPU-memory check, and each model's settings for AI Toolkit. See [MODELS.md](MODELS.md). |
 | `app/photocheck.py` | Looks at each photo on the CPU: is it blurry (OpenCV Laplacian), too small, a near-duplicate (perceptual hash), and is there a dog/person in it (torchvision's small COCO detector)? Also works out the crop box around the subject. Everything "fails soft": if a check can't run, the photo just isn't flagged. |
 | `app/bgremove.py` | Optional. A tiny stand-alone script that puts every photo in a folder on a white background using the BiRefNet_lite model. It runs as its own process so its GPU memory is fully released before training starts. |
 | `app/static/index.html` | The whole user interface: one HTML file with its CSS and JavaScript inside. It uploads photos, shows the flags, starts trainings, and refreshes the job page every few seconds. |
 | `app/static/login.html` | The PIN screen shown the first time a device visits. |
 | `app/static/icon.svg`, `icon.png` | The browser tab icon and the Home Screen icon. |
-| `Dockerfile` | Builds the trainer image: starts from AI Toolkit's official image, adds the web server's Python packages, bakes in the detector weights, and runs `server.py` with uvicorn. |
+| `Dockerfile` | Builds the trainer image: starts from AI Toolkit's official image, adds the web server's Python packages, bakes in the detector weights, and runs `server.py` (with the other modules in `app/`) with uvicorn. |
 | `docker-compose.yml` | Tells Docker how to run the trainer: which port, which GPU, the PIN, and which PC folders to mount (`data/jobs`, `data/loras`, the model download cache). |
 | `.env.example` | The settings you copy to `.env` (PIN, port, GPU, data folder). |
 | `scripts/comfy_test_render.py` | A helper you run by hand to draw a test picture with a LoRA through a ComfyUI server. Not used by the app. |
@@ -105,7 +113,7 @@ data/
 ## The life of a training job, step by step
 
 1. **You open the page.** `GET /` returns `index.html`. A small piece of code called *middleware*
-   (`pin_gate` in `server.py`) runs before every request and checks for the PIN cookie. No cookie?
+   (`pin_gate` in `auth.py`) runs before every request and checks for the PIN cookie. No cookie?
    You're sent to `/login`. Typing the right PIN (`POST /api/login`) sets a cookie that lasts a year.
 2. **You pick photos.** The page asks for a new draft (`POST /api/drafts`) and uploads each photo to
    `POST /api/drafts/<id>/photos`. The server rotates it upright, shrinks it, saves a thumbnail, and
@@ -151,7 +159,7 @@ press **Resume**.
 
 ## Good places to start reading
 
-- `plan_steps()`, `save_every()`, `parse_tags()` and `merge_caption()` in `server.py`: short, pure
+- `plan_steps()` and `save_every()` in `training.py`, `parse_tags()` and `merge_caption()` in `photos.py`: short, pure
   functions (same input, same output, no files or GPU), easy to understand and to test.
 - `photocheck.flags()`: plain `if` statements that turn numbers into warnings.
 - `build_config()`: the whole training recipe as one Python dictionary.
