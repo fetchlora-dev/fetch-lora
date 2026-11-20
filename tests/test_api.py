@@ -139,3 +139,17 @@ def test_saving_the_webhook_keeps_learned_speeds(client):
     assert client.post("/api/settings", json={"webhook_url": "http://example.invalid/hook"}).status_code == 200
     s = server.read_settings()
     assert s["webhook_url"] == "http://example.invalid/hook" and s["speed"]["good"] == 1.234
+
+
+def test_duplicate_flag_ignores_removed_photos(client):
+    draft = client.post("/api/drafts").json()["id"]
+    same = jpeg_bytes(7)
+    for i in range(3):  # photo 0 and 1 are identical, photo 2 is different
+        data = same if i < 2 else jpeg_bytes(8)
+        client.post(f"/api/drafts/{draft}/photos", files={"photo": (f"p{i}.jpg", data, "image/jpeg")})
+    codes = lambda view: {p["pid"]: [f["code"] for f in p["flags"]] for p in view["photos"]}
+    if server.photocheck.phash(Image.open(io.BytesIO(same))) is None:
+        pytest.skip("scipy isn't installed here, so there are no duplicate checks")
+    assert "duplicate" in codes(client.get(f"/api/drafts/{draft}").json())[1]
+    # after removing photo 0, photo 1 is no longer anyone's duplicate
+    assert "duplicate" not in codes(client.get(f"/api/drafts/{draft}?keep=1,2").json())[1]

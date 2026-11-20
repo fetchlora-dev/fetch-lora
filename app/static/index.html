@@ -223,19 +223,20 @@ function renderTiles() {
 }
 $('#tiles').addEventListener('click', e => {
   const rm = e.target.closest('[data-rm]'); if (!rm) return;
-  const p = photos.find(x => x.pid == rm.dataset.rm); if (p) { p.removed = true; renderTiles(); }
+  const p = photos.find(x => x.pid == rm.dataset.rm); if (p) { p.removed = true; renderTiles(); refreshFlags(); }
 });
 $('#tiles').addEventListener('input', e => { const t = e.target.closest('[data-tag]'); if (t) { const p = photos.find(x => x.pid == t.dataset.tag); if (p) p.tags = t.value; } });
 $('#tiles').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.tag')) { e.preventDefault(); e.target.blur(); } });
 $('#summary').addEventListener('click', e => {
-  if (e.target.id === 'rmFlagged') { flagged().forEach(p => p.removed = true); renderTiles(); }
+  if (e.target.id === 'rmFlagged') { flagged().forEach(p => p.removed = true); renderTiles(); refreshFlags(); }
   if (e.target.id === 'clearAll' && confirm('Remove all the photos you picked?')) { draft = null; photos = []; $('#againNote').style.display = 'none'; renderTiles(); }
 });
 
 async function refreshFlags() {
   if (!draft) return;
   try {
-    const d = await api(`/api/drafts/${draft}?kind=${$('#kind').value}`);
+    // check only the photos still chosen, so removed ones don't count as duplicates
+    const d = await api(`/api/drafts/${draft}?kind=${$('#kind').value}&keep=${kept().map(p => p.pid).join(',')}`);
     const byPid = Object.fromEntries(d.photos.map(p => [p.pid, p]));
     photos.forEach(p => { if (byPid[p.pid]) p.flags = byPid[p.pid].flags; });
     renderTiles();

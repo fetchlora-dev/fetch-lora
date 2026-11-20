@@ -1017,8 +1017,12 @@ def draft_metas(dd: Path) -> List[dict]:
     return out
 
 
-def draft_view(dd: Path, kind: str = "dog") -> dict:
+def draft_view(dd: Path, kind: str = "dog", keep: Optional[List[int]] = None) -> dict:
+    """Photos and their flags. With `keep`, only the photos still chosen are checked, so a photo
+    isn't called a duplicate of one that was already removed, and "photo 3" is the third tile."""
     metas = draft_metas(dd)
+    if keep is not None:
+        metas = [m for m in metas if m["pid"] in keep]
     fl = photocheck.flags(metas, kind if kind in KINDS else "dog")
     photos = [{"pid": m["pid"], "name": m.get("name", ""), "tags": m.get("tags", ""), "w": m["w"], "h": m["h"],
                "thumb": f"/api/drafts/{dd.name}/thumb/{m['pid']}", "flags": f}
@@ -1089,8 +1093,10 @@ def upload_photo(draft_id: str, photo: UploadFile = File(...), tags: str = Form(
 
 
 @app.get("/api/drafts/{draft_id}")
-def get_draft(draft_id: str, kind: str = "dog") -> dict:
-    return draft_view(draft_dir(draft_id), kind)
+def get_draft(draft_id: str, kind: str = "dog", keep: str = "") -> dict:
+    """`keep` is an optional comma-separated list of the photo ids still chosen, e.g. "0,2,3"."""
+    ids = [int(x) for x in keep.split(",") if x.strip().isdigit()] if keep else None
+    return draft_view(draft_dir(draft_id), kind, ids)
 
 
 @app.get("/api/drafts/{draft_id}/thumb/{pid}")
