@@ -95,7 +95,7 @@ The very first run also downloads the base model once (~16 GB). The bigger model
    ```
 3. **Get the code and set it up:**
    ```
-   git clone https://github.com/<you>/fetch-lora.git
+   git clone https://github.com/fetchlora-dev/fetch-lora.git
    cd fetch-lora
    copy .env.example .env          # Linux/macOS: cp .env.example .env
    notepad .env                    # set TRAINER_PIN= to a PIN you'll remember

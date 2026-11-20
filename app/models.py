@@ -56,7 +56,7 @@ MODELS: Dict[str, dict] = {
         "min_vram_gb": 15,  # a "16 GB" card reports ~15.9 GB
         "presets": {
             # Z-Image Base learns a bit slower per step than Klein and has more to learn (6B).
-            # Good: 60 per photo, 1500-2500.  Best: 120 per photo, 3600-4800 (Eric's ~4800 ceiling).
+            # Good: 60 per photo, 1500-2500.  Best: 120 per photo, 3600-4800 (~4800 is the upper limit that worked in testing).
             "good": {"steps": 2000, "per_photo": 60, "min": 1500, "max": 2500, "res": [512, 768, 1024], "s_per_step": 2.9},
             "best": {"steps": 4200, "per_photo": 120, "min": 3600, "max": 4800, "res": [512, 768, 1024], "s_per_step": 3.0},
         },
