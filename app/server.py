@@ -1041,6 +1041,14 @@ def create_job(request: Request, body: dict = Body(...)) -> dict:
     kind, preset = body.get("kind", "dog"), body.get("preset", "good")
     if not NAME_RE.match(name):
         raise HTTPException(400, "Name must start with a letter and use only letters, numbers and _ (3-40 characters), like biscuit_dog")
+    # The finished LoRA is saved as data/loras/<name>.safetensors, so two trainings with the same
+    # name would overwrite each other. Refuse while the other one is still going, and otherwise
+    # only replace it when the page says so (it asks the person first).
+    same_name = [(od, st) for od, st in all_jobs() if st.get("name") == name and not st.get("replaced_by")]
+    if any(st.get("status") in ("queued", "running") for _, st in same_name):
+        raise HTTPException(400, f"{name} is already training or waiting its turn. Pick another name, or wait until it's done.")
+    if same_name and not body.get("replace"):
+        raise HTTPException(409, f"You already have a training called {name}. Starting this one will replace its LoRA file.")
     model = str(body.get("model") or mm.DEFAULT_MODEL)
     if kind not in KINDS or preset not in PRESETS or model not in mm.MODELS:
         raise HTTPException(400, "Unknown option")
@@ -1081,6 +1089,8 @@ def create_job(request: Request, body: dict = Body(...)) -> dict:
              "options": {"autocrop": autocrop, "bg_remove": bool(body.get("bg_remove")), "steps_override": steps_override},
              "origin": str(request.base_url)}
     write_state(d, state)
+    for od, _ in same_name:  # the old ones stay downloadable, but no longer own data/loras/<name>
+        update_state(od, replaced_by=job_id)
     shutil.rmtree(dd, ignore_errors=True)
     queue_event.set()
     return {"id": job_id, "photos": n, "queue": queue_info().get(job_id)}
@@ -1112,6 +1122,8 @@ def cancel(job_id: str) -> dict:
 def resume(job_id: str) -> dict:
     d = job_dir(job_id)
     s = read_state(d)
+    if s.get("replaced_by"):
+        raise HTTPException(409, "A newer training with the same name replaced this one, so it can't be resumed.")
     if s["status"] in ("failed", "cancelled", "interrupted"):
         # ai-toolkit picks up from the newest saved checkpoint automatically
         update_state(d, status="queued", error=None, train_started=None, finished=None, order=time.time())
@@ -1149,7 +1161,7 @@ def choose(job_id: str, step: int = Form(...)) -> dict:
     if step not in [c["step"] for c in checkpoints(d, s)]:
         raise HTTPException(400, "That version isn't saved.")
     s = update_state(d, chosen_step=step, dt=None)
-    if s.get("status") == "done" and s.get("delivered_step") != step:
+    if s.get("status") == "done" and s.get("delivered_step") != step and not s.get("replaced_by"):
         info = deliver(d, s)
         update_state(d, result=info, delivered_step=step)
     return {"ok": True}
@@ -1162,6 +1174,8 @@ def send_to_drawthings(job_id: str) -> dict:
     s = read_state(d)
     if s.get("status") != "done":
         raise HTTPException(400, "This training isn't finished yet.")
+    if s.get("replaced_by"):
+        raise HTTPException(409, "A newer training with the same name replaced this one. Download it instead.")
     if not mm.MODELS[mm.model_of(s)]["dt_send"]:
         raise HTTPException(409, f"The Draw Things server on this PC only has Klein 4B. Download this LoRA and import it "
                                  f"in the Draw Things app, then use it with {mm.MODELS[mm.model_of(s)]['dt_model']}.")

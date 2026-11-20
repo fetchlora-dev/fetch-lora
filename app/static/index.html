@@ -185,7 +185,7 @@ async function api(url, opts = {}) {
   let r;
   try { r = await fetch(url, opts); } catch { throw new Error('Could not reach your PC. Is it on, and is Tailscale on?'); }
   let j = {}; try { j = await r.json(); } catch {}
-  if (!r.ok) throw new Error(j.detail || ('Something went wrong (' + r.status + ')'));
+  if (!r.ok) { const e = new Error(j.detail || ('Something went wrong (' + r.status + ')')); e.status = r.status; throw e; }
   return j;
 }
 const postJSON = (url, body) => api(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
@@ -388,9 +388,16 @@ $('#go').onclick = async () => {
   if (!/^[a-z][a-z0-9_]{2,39}$/.test(name)) return $('#err').textContent = 'Name: start with a letter, letters/numbers/_ only, like biscuit_dog.';
   const k = kept(), tags = {}; k.forEach(p => { if ((p.tags || '').trim()) tags[p.pid] = p.tags.trim(); });
   $('#go').disabled = true; $('#go').textContent = 'Starting…';
+  const body = {draft, name, kind: $('#kind').value, preset, model: currentModel(), keep: k.map(p => p.pid), tags,
+    autocrop: $('#autocrop').checked, bg_remove: $('#bgremove').checked, steps: parseInt($('#steps').value) || null};
   try {
-    const r = await postJSON('/api/jobs', {draft, name, kind: $('#kind').value, preset, model: currentModel(), keep: k.map(p => p.pid), tags,
-      autocrop: $('#autocrop').checked, bg_remove: $('#bgremove').checked, steps: parseInt($('#steps').value) || null});
+    let r;
+    try { r = await postJSON('/api/jobs', body); }
+    catch (e) {
+      // 409 = a training with this name already exists; only replace it if the person says so
+      if (e.status !== 409 || !confirm(e.message + '\n\nReplace it?')) throw e;
+      r = await postJSON('/api/jobs', {...body, replace: true});
+    }
     draft = null; photos = []; $('#name').value = ''; $('#againNote').style.display = 'none'; renderTiles();
     location.hash = 'job=' + r.id;
   } catch (e) { $('#err').textContent = e.message; }
@@ -444,6 +451,7 @@ async function again(id) {
 
 function dtBlock(j) {
   const dt = j.drawthings || {}, id = j.id, n = esc(j.name);
+  if (j.replaced_by) return `<p>A newer training called <b>${n}</b> replaced this one in Draw Things and in the LoRA folder. You can still <b>Download</b> this version and import it in Draw Things yourself.</p>`;
   if (dt.unsupported) return `<p>Tap <b>Download</b>, then <b>Save to Files</b>. In Draw Things: model menu → <b>LoRA</b> → <b>Manage</b> → <b>Import</b>, and pick the file.</p><p class="hint">One-tap "Send to Draw Things" only works for Klein 4B LoRAs, because the Draw Things server on this PC only has Klein 4B.</p>`;
   if (!dt.addon) return `<p>Tap <b>Download</b>, then <b>Save to Files</b>. In Draw Things: model menu → <b>LoRA</b> → <b>Manage</b> → <b>Import</b>, and pick the file.</p>`;
   if (dt.state === 'converting') return `<p>⏳ Getting ${n} ready for Draw Things…</p>`;
