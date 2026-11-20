@@ -64,3 +64,32 @@ def test_home_screen_files_load_before_login():
     c = TestClient(server.app, follow_redirects=False)
     for path in ("/static/manifest.webmanifest", "/static/icon.png", "/static/icon-512.png"):
         assert c.get(path).status_code == 200, path
+
+
+def test_upload_limits(client, monkeypatch):
+    draft = client.post("/api/drafts").json()["id"]
+    monkeypatch.setattr(server, "MAX_PHOTO_MB", 0)  # every real file is "too big" now
+    r = client.post(f"/api/drafts/{draft}/photos", files={"photo": ("big.jpg", jpeg_bytes(1), "image/jpeg")})
+    assert r.status_code == 413
+    assert not list((server.DRAFTS / draft).glob("upload_*"))  # the partial file was cleaned up
+    monkeypatch.setattr(server, "MAX_PHOTO_MB", 50)
+    monkeypatch.setattr(server, "MAX_PHOTOS", 1)
+    ok = client.post(f"/api/drafts/{draft}/photos", files={"photo": ("a.jpg", jpeg_bytes(2), "image/jpeg")})
+    assert ok.status_code == 200
+    r = client.post(f"/api/drafts/{draft}/photos", files={"photo": ("b.jpg", jpeg_bytes(3), "image/jpeg")})
+    assert r.status_code == 400
+
+
+def test_huge_pixel_count_is_refused(tmp_path, monkeypatch):
+    f = tmp_path / "wide.png"
+    Image.new("L", (400, 300)).save(f)
+    monkeypatch.setattr(server, "MAX_PIXELS", 400 * 300 - 1)
+    with pytest.raises(ValueError):
+        server.open_photo(f, 1024)
+
+
+def test_oversized_upload_is_refused_before_it_is_read(client):
+    draft = client.post("/api/drafts").json()["id"]
+    big = b"x" * ((server.MAX_PHOTO_MB + 2) * 1024 * 1024)
+    r = client.post(f"/api/drafts/{draft}/photos", files={"photo": ("huge.jpg", big, "image/jpeg")})
+    assert r.status_code == 413

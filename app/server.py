@@ -60,6 +60,10 @@ DT_STATUS = EXPORTS / ".drawthings"
 # Test mode for "Send to Draw Things": ask the add-on to check everything but not restart.
 DT_DRY_RUN = os.environ.get("DRAGON_DT_DRY_RUN", "0") == "1"
 HERE = Path(__file__).parent
+# Upload limits, so one bad (or huge) upload can't fill the PC's disk or memory.
+MAX_PHOTO_MB = int(os.environ.get("DRAGON_MAX_PHOTO_MB", "50"))      # per photo file
+MAX_PHOTOS = int(os.environ.get("DRAGON_MAX_PHOTOS", "300"))         # per set of photos
+MAX_PIXELS = 100_000_000                                             # 100 megapixels per photo
 
 JOBS.mkdir(parents=True, exist_ok=True)
 EXPORTS.mkdir(parents=True, exist_ok=True)
@@ -341,6 +345,9 @@ def caption_parts(trigger: str, kind: str) -> tuple:
 
 def open_photo(src: Path, max_side: int) -> Image.Image:
     with Image.open(src) as im:
+        # Check the size before decoding: a tiny file can claim to be a gigantic picture.
+        if im.width * im.height > MAX_PIXELS:
+            raise ValueError(f"{im.width}x{im.height} is too many pixels")
         im = ImageOps.exif_transpose(im).convert("RGB")
     im.thumbnail((max_side, max_side))
     return im
@@ -795,6 +802,20 @@ failures: dict = {}
 
 
 @app.middleware("http")
+async def upload_size_limit(request: Request, call_next):
+    """FastAPI saves a whole upload to a temp file before upload_photo() even runs, so turn away
+    photo uploads that say up front (Content-Length) that they're too big."""
+    if request.method == "POST" and request.url.path.endswith("/photos"):
+        try:
+            size = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            size = 0
+        if size > (MAX_PHOTO_MB + 1) * 1024 * 1024:  # +1 MB for the form around the photo
+            return JSONResponse({"detail": f"That photo is bigger than {MAX_PHOTO_MB} MB."}, status_code=413)
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def pin_gate(request: Request, call_next):
     if request.url.path in OPEN_PATHS or not PIN:
         return await call_next(request)
@@ -987,10 +1008,17 @@ def upload_photo(draft_id: str, photo: UploadFile = File(...), tags: str = Form(
     ext = Path(photo.filename or "").suffix.lower() or ".jpg"
     if ext not in IMG_EXT:
         raise HTTPException(400, f"{photo.filename} isn't a photo.")
+    if len(list((dd / "meta").glob("*.json"))) >= MAX_PHOTOS:
+        raise HTTPException(400, f"That's plenty of photos: one training can use at most {MAX_PHOTOS}.")
     tmp = dd / f"upload_{uuid.uuid4().hex}{ext}"
     try:
+        size, limit = 0, MAX_PHOTO_MB * 1024 * 1024
         with open(tmp, "wb") as fh:
-            shutil.copyfileobj(photo.file, fh, length=1024 * 1024)
+            while chunk := photo.file.read(1024 * 1024):  # copy 1 MB at a time, stop if it's too big
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(413, f"{photo.filename} is bigger than {MAX_PHOTO_MB} MB.")
+                fh.write(chunk)
         try:
             r = add_draft_photo(dd, tmp, photo.filename or "", tags)
         except Exception:
