@@ -555,10 +555,26 @@ def next_queued() -> Path | None:
     return q[0][0] if q else None
 
 
-def run_job(d: Path) -> None:
-    s = update_state(d, status="running", started=time.time(), error=None)
-    log = open(d / "train.log", "ab")
+def claim(d: Path) -> Optional[dict]:
+    """Mark a waiting job as running, unless it was cancelled a moment ago. Returns its state or None."""
+    with lock:
+        s = read_state(d)
+        if s.get("status") != "queued":
+            return None
+        s.update(status="running", started=time.time(), error=None)
+        write_state(d, s)
+        return s
 
+
+def run_job(d: Path) -> None:
+    s = claim(d)
+    if s is None:  # cancelled just as its turn came
+        return
+    with open(d / "train.log", "ab") as log:  # `with` closes the log even if something below fails
+        _train(d, s, log)
+
+
+def _train(d: Path, s: dict, log) -> None:
     def note(msg: str) -> None:
         log.write((time.strftime("%H:%M:%S ") + "[fetch] " + msg + "\n").encode())
         log.flush()
@@ -571,14 +587,12 @@ def run_job(d: Path) -> None:
         finally:
             update_state(d, prep=None)
         if n < 5:
-            log.close()
             msg = f"Only {n} photos could be used. Please pick at least 5 (20-40 is best) and try again."
             update_state(d, status="failed", finished=time.time(), error=msg)
             notify(d, "failed", msg)
             return
         s = read_state(d)
-        if s.get("status") == "cancelled":
-            log.close()
+        if s.get("status") != "running":  # cancelled while the photos were being prepared
             return
     cfg = build_config(d, s)
     env = dict(os.environ, PYTHONUNBUFFERED="1")
@@ -587,11 +601,15 @@ def run_job(d: Path) -> None:
         env=env, start_new_session=True,
     )
     current.update(job=d.name, proc=proc)
-    code = proc.wait()
-    log.close()
-    current.update(job=None, proc=None)
+    try:
+        if read_state(d).get("status") == "cancelled":  # Cancel pressed while it was starting
+            os.killpg(proc.pid, signal.SIGTERM)
+        code = proc.wait()
+    finally:
+        current.update(job=None, proc=None)
     s = read_state(d)
-    if s.get("status") == "cancelled":
+    if s.get("status") != "running":
+        # Cancelled (and maybe already resumed, so it's waiting again): leave its status alone.
         return
     if code == 0:
         try:
@@ -619,8 +637,12 @@ def worker() -> None:
         try:
             run_job(d)
         except Exception as e:
-            update_state(d, status="failed", error=f"Something went wrong: {e}")
-            notify(d, "failed", str(e))
+            try:
+                if read_state(d).get("status") == "running":  # don't turn a cancelled job into "failed"
+                    update_state(d, status="failed", finished=time.time(), error=f"Something went wrong: {e}")
+                    notify(d, "failed", str(e))
+            except Exception:
+                time.sleep(5)  # the job folder itself is broken; don't spin on it
 
 
 def log_tail(d: Path, lines: int = 40) -> str:
