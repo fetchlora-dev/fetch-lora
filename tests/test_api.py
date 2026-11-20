@@ -110,3 +110,25 @@ def test_bad_job_requests_get_a_clear_answer_not_a_crash(client):
     assert client.post("/api/jobs", json={**base, "tags": {"x": "ball"}}).status_code == 400
     # the same photo five times is still only one photo
     assert client.post("/api/jobs", json={**base, "keep": [0, 0, 0, 0, 0]}).status_code == 400
+
+
+def test_wrong_pins_wait_longer_and_longer(monkeypatch):
+    monkeypatch.setattr(server.time, "sleep", lambda s: None)
+    server.failures.clear()
+    c = TestClient(server.app)
+    for _ in range(5):
+        assert c.post("/api/login", data={"pin": "0000"}).status_code == 401
+    assert c.post("/api/login", data={"pin": server.PIN}).status_code == 429  # locked, even with the right PIN
+    count, until = server.failures["testclient"]
+    assert count == 5 and 50 < until - server.time.time() <= 60
+    server.failures["testclient"] = (7, 0)  # pretend the wait is over, after 7 misses
+    c.post("/api/login", data={"pin": "0000"})
+    assert server.failures["testclient"][1] - server.time.time() > 60 * 2 ** 2  # 8 minutes now
+    server.failures.clear()
+
+
+def test_non_ascii_pin_is_just_wrong():
+    server.failures.clear()
+    r = TestClient(server.app).post("/api/login", data={"pin": "é1234"})
+    assert r.status_code == 401
+    server.failures.clear()

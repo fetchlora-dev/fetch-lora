@@ -879,10 +879,18 @@ def login(request: Request, pin: str = Form(...)):
     ip = request.client.host if request.client else "?"
     count, until = failures.get(ip, (0, 0))
     if time.time() < until:
-        return JSONResponse({"detail": "Too many tries. Wait a minute and try again."}, status_code=429)
-    if not hmac.compare_digest(pin.strip(), PIN):
+        mins = max(1, round((until - time.time()) / 60))
+        return JSONResponse({"detail": f"Too many tries. Wait {mins} minute{'s' if mins > 1 else ''} and try again."},
+                            status_code=429)
+    # Compare as bytes: comparing str with non-ASCII characters (like "é") raises an error.
+    if not hmac.compare_digest(pin.strip().encode(), PIN.encode()):
         count += 1
-        failures[ip] = (count, time.time() + 60 if count >= 5 else 0)
+        # After 5 wrong PINs, wait 1 minute, then 2, 4, 8 ... up to an hour per try, so a 4-digit
+        # PIN can't be guessed by trying them all. (It used to stay at 1 minute: ~1 day for all 10,000.)
+        wait = min(3600, 60 * 2 ** (count - 5)) if count >= 5 else 0
+        if len(failures) > 10000:  # don't let a flood of addresses fill the memory
+            failures.clear()
+        failures[ip] = (count, time.time() + wait)
         time.sleep(1)
         return JSONResponse({"detail": "Wrong PIN"}, status_code=401)
     failures.pop(ip, None)
