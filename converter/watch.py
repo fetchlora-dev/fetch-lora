@@ -15,6 +15,7 @@ everything but doesn't restart.
 import http.client
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -32,6 +33,7 @@ DOCKER_SOCK = os.environ.get("DT_DOCKER_SOCK", "/var/run/docker.sock")
 SERVER = os.environ.get("DT_SERVER_CONTAINER", "drawthings-grpc")
 DRY_RUN = os.environ.get("DT_RESTART_DRY_RUN", "0") == "1"
 REQUEST_TIMEOUT = 900
+NAME_RE = re.compile(r"[a-z][a-z0-9_]{2,39}")  # the same names the trainer allows
 
 
 def log(msg):
@@ -128,18 +130,26 @@ def restart_server(dry_run):
     return True, "Done! Open Draw Things and pick your LoRA."
 
 
+def read_json(path: Path) -> dict:
+    """A small JSON status file, or {} if it's missing or broken."""
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
 def handle_requests():
     for req_file in sorted(STATUS.glob("restart-request-*.json")):
-        try:
-            req = json.loads(req_file.read_text())
-        except Exception:
+        req = read_json(req_file)
+        rid, name = str(req.get("id", "")), str(req.get("name", ""))
+        # Only plain LoRA names and ids: never let a request point at files outside these folders.
+        if not NAME_RE.fullmatch(name) or not re.fullmatch(r"[0-9a-f]{1,32}", rid):
             req_file.unlink(missing_ok=True)
             continue
-        rid, name = req.get("id", "x"), req.get("name", "")
         result = STATUS / f"restart-result-{rid}.json"
         src = IN / f"{name}.safetensors"
         status_file = STATUS / f"{name}.json"
-        done = json.loads(status_file.read_text()) if status_file.exists() else {}
+        done = read_json(status_file)  # a broken status file used to stop every request, forever
         target = OUT / f"{name}_lora_f16.ckpt"
         res = None
         if src.exists() and done.get("source_mtime") == src.stat().st_mtime:
@@ -182,8 +192,7 @@ def main():
                 st = src.stat()
                 if time.time() - st.st_mtime < 15:  # still being copied
                     continue
-                status = STATUS / f"{src.stem}.json"
-                done = json.loads(status.read_text()) if status.exists() else {}
+                done = read_json(STATUS / f"{src.stem}.json")
                 target = OUT / f"{src.stem}_lora_f16.ckpt"
                 if done.get("source_mtime") == st.st_mtime and (target.exists() or not done.get("ok")):
                     continue  # up to date (or failed for this exact file; don't loop)
