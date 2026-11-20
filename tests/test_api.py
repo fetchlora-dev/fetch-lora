@@ -100,3 +100,13 @@ def test_empty_pin_makes_a_random_one():
     assert len(pin) == 6 and pin.isdigit()
     assert server.choose_pin("   ") == pin          # the same one every start, until you set your own
     assert server.choose_pin("8642") == "8642"
+
+
+def test_bad_job_requests_get_a_clear_answer_not_a_crash(client):
+    draft = new_draft_with_photos(client)
+    base = {"draft": draft, "name": "odd_input_dog", "preset": "quick"}
+    assert client.post("/api/jobs", json={**base, "kind": ["dog"]}).status_code == 400
+    assert client.post("/api/jobs", json={**base, "keep": ["one", "two"]}).status_code == 400
+    assert client.post("/api/jobs", json={**base, "tags": {"x": "ball"}}).status_code == 400
+    # the same photo five times is still only one photo
+    assert client.post("/api/jobs", json={**base, "keep": [0, 0, 0, 0, 0]}).status_code == 400

@@ -1112,7 +1112,7 @@ def list_jobs() -> list:
 @app.post("/api/jobs")
 def create_job(request: Request, body: dict = Body(...)) -> dict:
     name = str(body.get("name", "")).strip().lower().replace(" ", "_").replace("-", "_")
-    kind, preset = body.get("kind", "dog"), body.get("preset", "good")
+    kind, preset = str(body.get("kind") or "dog"), str(body.get("preset") or "good")
     if not NAME_RE.match(name):
         raise HTTPException(400, "Name must start with a letter and use only letters, numbers and _ (3-40 characters), like biscuit_dog")
     # The finished LoRA is saved as data/loras/<name>.safetensors, so two trainings with the same
@@ -1133,8 +1133,12 @@ def create_job(request: Request, body: dict = Body(...)) -> dict:
         raise HTTPException(400, f"{mm.MODELS[model]['label']}: {can['reason']}")
     dd = draft_dir(str(body.get("draft", "")))
     metas = {m["pid"]: m for m in draft_metas(dd)}
-    keep = [int(p) for p in body.get("keep", list(metas)) if int(p) in metas]
-    tags = {int(k): str(v) for k, v in (body.get("tags") or {}).items()}
+    try:
+        keep = list(dict.fromkeys(int(p) for p in body.get("keep", list(metas))))  # each photo once, in order
+        tags = {int(k): str(v) for k, v in (body.get("tags") or {}).items()}
+    except (TypeError, ValueError, AttributeError):
+        raise HTTPException(400, "The list of chosen photos didn't make sense. Please pick them again.")
+    keep = [p for p in keep if p in metas]
     if len(keep) < 5:
         raise HTTPException(400, f"Only {len(keep)} photos left. Please keep at least 5 (20-40 is best).")
     autocrop = body.get("autocrop")
