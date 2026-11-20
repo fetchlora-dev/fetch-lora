@@ -27,6 +27,19 @@ small, careful changes are worth more than big ones.
 Found a problem but don't want to fix it yourself? Opening an issue that says what you did, what you
 expected, and what happened instead is a real contribution too.
 
+## Running the tests
+
+The tests need no GPU, Docker or AI models. From the project folder:
+
+```
+python -m venv .venv
+.venv/bin/pip install fastapi==0.115.* python-multipart pillow numpy scipy pyyaml httpx pytest
+.venv/bin/python -m pytest
+```
+
+(On Windows, use `.venv\Scripts\pip` and `.venv\Scripts\python`.) `tests/conftest.py` points the
+app at a temporary data folder, so your real trainings are never touched.
+
 ## Code style
 
 - Python 3.10+, standard library first, 4-space indents, lines up to about 120 characters.
@@ -39,11 +52,10 @@ expected, and what happened instead is a real contribution too.
 
 Small, real improvements that are a good size for a first pull request. None of them needs a GPU.
 
-1. **Add the first automated tests.** The project has no tests yet. Create a `tests/` folder and
-   write [pytest](https://docs.pytest.org) tests for the pure helper functions in `app/server.py`:
-   `plan_steps()`, `save_every()`, `parse_tags()` and `merge_caption()`. Tip: `server.py` creates
-   folders when it's imported, so set the `DRAGON_DATA` and `DRAGON_EXPORTS` environment variables to a
-   temporary folder in your test setup. Add a short "Running the tests" section to this file.
+1. **Add more tests.** `tests/` has a first set (helpers, the web API, the training worker with a
+   stand-in for AI Toolkit, and the Draw Things add-on's requests). Pick something not covered yet,
+   for example `estimate_seconds()`, `measure_speed()` with a few made-up log lines, or `checkpoints()`
+   with empty `.safetensors` files in a temporary folder.
 
 2. **Write unit tests for the photo check rules.** `photocheck.flags()` and `photocheck.crop_box()`
    take plain dictionaries (width, height, detected boxes, blur score, hash), so you can test them with

@@ -84,11 +84,13 @@ Inside the container, `/data/jobs` and `/exports` are the PC's `data/jobs` and `
 data/
 ├─ jobs/
 │  ├─ .auth_secret             random key used to sign the PIN cookie (made on first start)
+│  ├─ .pin                     the random PIN, only if TRAINER_PIN in .env is empty
 │  ├─ .settings.json           webhook address + measured GPU speed
 │  ├─ .drafts/<draft-id>/      photos picked but not started yet (deleted after 48 h)
 │  │  ├─ photos/  thumbs/  meta/
 │  └─ <job-id>/                one folder per training (id = 12 hex characters)
 │     ├─ job.json              the job's state: name, status, steps, options, result…
+│     │                        (replaced_by: a newer training with the same name took over data/loras/<name>)
 │     ├─ recipe.json           which photos, their tags, and what the photo check found
 │     ├─ originals/            the photos as you picked them
 │     ├─ images/               the prepared photos + one caption .txt per photo (what AI Toolkit reads)
