@@ -1,6 +1,7 @@
 """Tests for the web API, using FastAPI's test client (no GPU, no training is started)."""
 import io
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -184,3 +185,14 @@ def test_job_page_and_list_work_after_a_start(client):
     assert any(j["id"] == job for j in client.get("/api/jobs").json())
     assert client.get("/api/estimate?photos=20").status_code == 200
     client.post(f"/api/jobs/{job}/cancel")
+
+def test_photos_open_in_the_app_not_a_new_page():
+    """A home-screen app has no Back button, so photos and downloads must stay on the page."""
+    html = Path(__file__).resolve().parents[1].joinpath("app/static/index.html").read_text()
+    assert 'id="viewer"' in html
+    assert "history.pushState" in html
+    assert "data-view=" in html
+    assert "data-download" in html
+    assert 'target="_blank"' not in html
+    assert "Escape" in html
+    assert "touchend" in html
