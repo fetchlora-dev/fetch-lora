@@ -1,0 +1,11 @@
+# For running the tests on any computer (no GPU needed): pip install -r requirements-dev.txt
+# The Docker image pins the same web-server versions in the Dockerfile.
+fastapi==0.115.14
+uvicorn==0.32.1
+python-multipart==0.0.32
+pyyaml==6.0.3
+pillow>=10,<13
+numpy>=1.26,<3
+scipy>=1.12,<2
+httpx>=0.27,<1
+pytest>=8,<10

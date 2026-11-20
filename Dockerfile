@@ -2,8 +2,10 @@
 # Training engine: ostris/ai-toolkit (MIT), pinned to a tested release.
 FROM ostris/aitoolkit:0.13.42
 
+# Exact versions, as tested on top of ostris/aitoolkit:0.13.42 (Nov 2026), so a rebuild never
+# quietly picks up a newer release. The image's own pillow, numpy, scipy and opencv are used as-is.
 RUN pip install --no-cache-dir --break-system-packages \
-      fastapi==0.115.* "uvicorn[standard]==0.32.*" python-multipart==0.0.* pillow-heif==0.* pyyaml
+      fastapi==0.115.14 "uvicorn[standard]==0.32.1" python-multipart==0.0.32 pillow-heif==0.22.0 pyyaml==6.0.3
 
 # Photo check / auto-crop: torchvision's small COCO detector (BSD-3-Clause), baked in (~75 MB)
 # so it works offline and on the first photo. Runs on the CPU.
