@@ -19,6 +19,7 @@ from PIL import Image, ImageOps
 import photocheck
 from config import DRAFTS, HERE, ID_RE, KINDS, MAX_PIXELS, draft_lock
 from jobstore import update_state
+from safepath import safe_join
 
 
 try:  # iPhone/iPad photos from the Files app may still be HEIC
@@ -149,9 +150,13 @@ def cleanup_drafts(max_age_h: float = 48) -> None:
 
 
 def draft_dir(draft_id: str) -> Path:
-    if not ID_RE.fullmatch(draft_id) or not (DRAFTS / draft_id).is_dir():
-        raise HTTPException(404, "Those photos expired. Please pick them again.")
-    return DRAFTS / draft_id
+    expired = HTTPException(404, "Those photos expired. Please pick them again.")
+    if not ID_RE.fullmatch(draft_id):
+        raise expired
+    dd = safe_join(DRAFTS, draft_id)
+    if not dd.is_dir():
+        raise expired
+    return dd
 
 
 def draft_metas(dd: Path) -> List[dict]:

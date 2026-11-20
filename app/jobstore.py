@@ -12,6 +12,7 @@ from typing import List
 from fastapi import HTTPException
 
 from config import ID_RE, JOBS, SETTINGS_FILE, lock
+from safepath import safe_join
 
 
 # --------------------------------------------------------------------------- #
@@ -20,7 +21,7 @@ from config import ID_RE, JOBS, SETTINGS_FILE, lock
 def job_dir(job_id: str) -> Path:
     if not ID_RE.fullmatch(job_id):
         raise HTTPException(404, "No such job")
-    d = JOBS / job_id
+    d = safe_join(JOBS, job_id)
     if not (d / "job.json").exists():
         raise HTTPException(404, "No such job")
     return d

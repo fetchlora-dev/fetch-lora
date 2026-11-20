@@ -196,3 +196,23 @@ def test_photos_open_in_the_app_not_a_new_page():
     assert 'target="_blank"' not in html
     assert "Escape" in html
     assert "touchend" in html
+
+
+@pytest.mark.parametrize("bad", ["..", "..%2F..%2Fetc", "%2e%2e", "ABCDEF123456", "abc", "abc123def4567"])
+def test_traversal_ids_are_refused(client, bad):
+    assert client.get(f"/api/jobs/{bad}").status_code == 404
+    assert client.get(f"/api/drafts/{bad}").status_code == 404
+    assert client.get(f"/api/drafts/{bad}/thumb/0").status_code == 404
+
+
+def test_job_file_names_cannot_escape(client):
+    r = start(client, "path_safety_dog")
+    assert r.status_code == 200
+    job = r.json()["id"]
+    img = sorted((jobstore.job_dir(job) / "originals").glob("*.jpg"))[0]
+    (jobstore.job_dir(job) / "images").mkdir(exist_ok=True)
+    (jobstore.job_dir(job) / "images" / img.name).write_bytes(img.read_bytes())
+    assert client.get(f"/api/jobs/{job}/files/images/{img.name}").status_code == 200
+    for bad in ["..%2Fjob.json", "%2e%2e%2Fjob.json", "..", "..%5Cjob.json", "%2Fetc%2Fpasswd"]:
+        assert client.get(f"/api/jobs/{job}/files/images/{bad}").status_code == 404, bad
+        assert client.get(f"/api/jobs/{job}/files/samples/{bad}").status_code == 404, bad

@@ -17,6 +17,7 @@ import models as mm
 from config import DT_DRY_RUN, DT_STATUS, EXPORTS, JOBS, KINDS, NAME_RE, PRESETS, current, lock, queue_event
 from jobstore import all_jobs, job_dir, read_state, update_state, write_state
 from training import gpu_stats, plan_steps
+from safepath import safe_join, safe_name
 from photos import add_draft_photo, draft_dir, draft_metas, draft_view, new_draft, parse_tags
 from delivery import checkpoints, chosen_checkpoint, deliver, dt_addon
 from worker import log_tail, progress, public, queue_info, queued_jobs
@@ -247,12 +248,11 @@ def train_again(job_id: str) -> dict:
 def job_file(job_id: str, kind: str, fname: str):
     d = job_dir(job_id)
     s = read_state(d)
-    if "/" in fname or ".." in fname:
-        raise HTTPException(404)
+    safe_name(fname)
     if kind == "samples":
-        f = d / "output" / s["name"] / "samples" / fname
+        f = safe_join(d / "output" / s["name"] / "samples", fname)
     elif kind == "images":
-        f = d / "images" / fname
+        f = safe_join(d / "images", fname)
     elif kind == "lora":
         ck = chosen_checkpoint(d, s)
         if not ck:
