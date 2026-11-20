@@ -57,3 +57,10 @@ def test_same_name_asks_before_replacing(client):
     assert r.status_code == 200, r.text
     assert server.read_state(d)["replaced_by"] == r.json()["id"]
     assert client.post(f"/api/jobs/{first}/resume").status_code == 409
+
+
+def test_home_screen_files_load_before_login():
+    # "Add to Home Screen" on the PIN page fetches these before anyone has logged in
+    c = TestClient(server.app, follow_redirects=False)
+    for path in ("/static/manifest.webmanifest", "/static/icon.png", "/static/icon-512.png"):
+        assert c.get(path).status_code == 200, path

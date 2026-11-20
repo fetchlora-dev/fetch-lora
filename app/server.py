@@ -787,7 +787,10 @@ if not _secret_file.exists():
     _secret_file.write_text(secrets.token_hex(32))
 SECRET = _secret_file.read_text().strip().encode()
 TOKEN = hmac.new(SECRET, PIN.encode(), hashlib.sha256).hexdigest()  # changes when the PIN changes
-OPEN_PATHS = {"/login", "/api/login", "/static/icon.svg", "/static/icon.png"}
+# Pages and files anyone may load without the PIN. The manifest and icons are here because
+# "Add to Home Screen" fetches them from the PIN page, before the device has the cookie.
+OPEN_PATHS = {"/login", "/api/login", "/static/icon.svg", "/static/icon.png", "/static/icon-512.png",
+              "/static/manifest.webmanifest"}
 failures: dict = {}
 
 
